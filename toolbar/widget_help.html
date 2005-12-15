@@ -1,0 +1,192 @@
+<HTML>
+<HEAD>
+<meta name="author" content="Felix Liberman">
+<TITLE>Visual Perl/Tk editor (widget edition)</TITLE>
+</HEAD>
+<BODY>
+<pre>
+<b>  Visual Perl/Tk editor (widget edition)</b>
+
+               Revision 1.17
+
+  (by Felix Liberman - FelixL@Rambler.ru)
+
+This editor can help any unexperienced in programming user
+to create widget-based Perl/Tk application.
+It can be a 'long brush' tool for user interface sketching.
+
+<b>  0. License</b>
+
+This software distributed FREE under GNU Public License.
+You can visit http://www.gnu.org in order to see details.
+Original author - Felix Liberman - welcomes all contributors
+to make changes and re-distribute this product under GPL terms.
+See also Chapter 8 of this document.
+
+<b>  1. Main menu</b>
+
+All editing functions can be called from main menu:
+<b>File Insert Edit View      Help</b>
+
+<b>File</b>
+File menu interact with design reading/storing and
+output format.
+
+<b>Note:</b>
+There are two possible ways to use generated design
+- Generate fully executable code and run it as standalone script
+- Generate code for subwindow using $mw as base window
+In second case user can embed his design in dialog box or
+control panel.
+
+<b>Insert</b>
+User can (near) free insert each widget inside of
+others. Although it's not recommended to insert sub-widgets
+inside of 'regular' widgets. Really useful containers are
+Frame, NoteBookFrame and LabFrame.
+
+During insertion some geometry collisions may occour.
+Refer to 'Geometry' chapter of this manual for details.
+
+Widgets that can be inserted under regular containers:
+- Frame
+- Label
+- Button
+- Entry
+- Text
+- Listbox
+- LabEntry
+- LabFrame
+- Scale
+- Optionmenu
+- Message
+- BrowseEntry
+- Radiobutton
+- Checkbutton
+- Menubutton
+- packAdjust (Adjustor)
+- NoteBook
+
+Notebook can contain only NoteBookFrames
+Menubutton can contain one and only one Menu
+Menu can contain:
+- command
+- cascade
+- checkbutton
+- radiobutton
+- separator
+
+<b>  2. Toolbar</b>
+
+Some commonly used actions can be invoked using toolbar buttons.
+Holding mouse pointer on such button you can read popup help message.
+
+<b>  3. Keyboard shortcuts</b>
+
+There are also keyboard shortcuts for main commands:
+  Ctrl/Z - Undo
+  Ctrl/R - Redo
+  Ctrl/O - File Open
+  Ctrl/S - File Save
+   DEL   - Delete
+
+<b>  4. Mouse</b>
+
+Mouse functions:
+
+  Left button - select object under cursor
+  Left button double-click - edit object properties
+  Right button - call pop-up menu for this object
+
+This mapping works both in design tree list and in
+preview window.
+
+Exclusion:
+Actions in preview window can cause callback function
+to run, thus (for VPTK application safety) calls to
+real functions replaced with message box popup.
+
+<b>  5. Hierarhy</b>
+
+  Due to modular character of Tk geometry manager your
+project must have hierarhy structure: each widget may
+have father (container), brothers (neighbor widgets
+sitting in same container) and children (sub-widgets).
+
+  Note that brother widgets must use same geometry
+manager. Conflicts of such type automatically detected
+and resolved by VPTK.
+
+<b>  6. Status bar</b>
+
+  In the bottom of editor window located status bar, displaying
+ID of currently selected object, mouse (X,Y) coordinates and
+modification flag
+
+<b>NOTE:</b>
+When going back with 'undo' to state before 1st modification
+the flag remain 'dirty' :-(
+
+<b>  7. Geometry conflicts and Tk glitches</b>
+
+  What is geometry conflict? First of all it's mix of different
+geometry managers under same parent widget. Additional restriction
+(possible deviated from first one) Tk geometry manager gets
+mad if user tryes to use 'grid' geometry under frame with label.
+
+  Yet another geometry conflict source: when some widget use
+packAdjust 'sub-widget' while 'brothers' use non-pack
+geometry managers. No solution till now (simply avoid such
+situations - otherwise application became stuck).
+
+  As noted in chapter 5, this type of conflicts arise only
+for widgets placed on the same level in same container.
+
+  More Tk glitches that recommended to consider:
+  - when baloons assigned to some widgets Tk goes mad after
+the widget clicked (fixed in latest Tk releases);
+  - baloons not working in dialog windows - only in top-level;
+  - color dialog can't be called from dailog window.
+
+<b>  8. Additional (but not less important) notes</b>
+
+  Your 'hand-written' source code in most cases can't be read-in
+by this program. This 'feature' appears due to limitations in
+source code format suggested by author for internal use.
+Please do not save partially interpreted code over original one.
+
+  This apply to users that generated some code and manually
+changed it from outside of VPTK. Latest VPTK version allow
+much more flexibility with nearly full set of widget options,
+variables and callback subroutines support + freestyle user-side
+code (mainly for callbacks) that can be edited from VPTK and
+stored safely. Thus I'll recommend to preserve generated
+part unchanged for future editing purposes.
+
+  My program developed for "fair use" suggesting that user would
+not try intentionally damage any data. From my side done all the
+best in order to supply powerful 'undo' mechanisms for such cases
+elimination. All bug reports are welcomed and will be served ASAP.
+
+  You can contact me, download updated versions of this program
+and other FREE software from my site http://felix.da.ru
+
+  Thanks a lot to all customers that send me advices and
+suggestions.
+
+  Thanks to PerlTk.ORG web-site for publishing my dilettante
+artwork among real PerlTk classics.
+
+<b>  9. Copyright</b>
+
+Copyright (c) 2002 Felix Liberman
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+</pre>
+</BODY>
+</HTML>
