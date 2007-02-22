@@ -1,17 +1,16 @@
-#!/usr/local/bin/perl
+#!/usr/bin/perl
 
-my $perl;    # which perl used for sources generation
 my $path;    # where current application installed
 my $toolbar; # where application resources could be found
 my $os;      # what kind of OS we have: win/unix
 
 =head1 NAME
 
- vptk - Perl/Tk Visual resource editor (widget edition)
+ vptk_w - Perl/Tk Visual resource editor (widget edition)
 
 =head1 SYNOPSIS
 
- vptk [-help]
+ vptk_w [-help]
 
    -h[elp]  - show this help
 
@@ -20,15 +19,15 @@ my $os;      # what kind of OS we have: win/unix
   1. General considerations
   =========================
 
-  * The project supply toolkit for Perl/Tk widget-level design
- familiar with Perl/Tk
-  * It can be a 'long brush' tool for user interface sketching
+  * VPTK is a tool for Perl/Tk widget-level scripts development
+  * It can be used for user interface sketching
+  * Code is instantly generated and could be re-used in standalone app
 
   2. User interface
   =================
 
-  * All data stored in Perl/Tk include-file form
-  * Widgets displayed both visually and as hierarhy tree
+  * All generated code stored as Perl/Tk ready-to-run program
+  * Project displayed both visually and as widgets tree
   * Most functions accessible both from pull-down menu,
     toolbar panel and by keyboard shortcuts
 
@@ -36,9 +35,9 @@ my $os;      # what kind of OS we have: win/unix
   ===============
   * Commas and brackets prohibited inside of text fields
   * Due to known bugs in Tk some balloons not dispayed
-  * No undo/redo for file options changes
+  * No undo/redo for file properties changes
 
-  4. Main features
+  4. Implemented features
   ================
   * Undo for all artwork modifications
   * Unlimited undo/redo
@@ -55,12 +54,12 @@ my $os;      # what kind of OS we have: win/unix
   * Full menus support
   * Code generation with 'strict syntax'
   * Conflicts in geometry managers resolved automatically
-  * Baloon showing code for each widget
+  * Balloon diaplaying code for each widget
   * X/Y mouse pointer coordinates displayed
   * Default values for most widgets apon creation
   * Default entries for lists and other arrays (display only)
   * View options: Balloons on/off, blink on/off, coord on/off
-  * Arbitrary widget names on creation + rename dialog
+  * User-defined widget names on creation + rename option
   * Callback functions support
   * User-defined code support
   * Widget state variables
@@ -68,8 +67,14 @@ my $os;      # what kind of OS we have: win/unix
   * Code portions cut-n-paste
   * Syntax highlight in code preview window
   * NumEntry used for numeric data input
-  * Testing window
+  * Debugging mode for generated app
   * Syntax check for generated code (perl -c)
+  * All edited widgets defined as abstract objects
+  * New widgets could be plugged-in without main routine modification
+  * User code before main loop - full support
+  * Balloon assigned from 'edit menu' (one-to-one)
+  * Bindings list in File->Setup (one-to-many)
+  * Clipboard paste after/under selection
   
   5. To be implemented
   ====================
@@ -78,8 +83,6 @@ my $os;      # what kind of OS we have: win/unix
   * Portions save/retrieve
   * External templates for most basic windows:
   Dialog, Configuration, Editor
-  * Bindings list in File->Setup
-  * Balloon assigned from 'edit menu'
   * Subroutines/variables/pictures management windows
   * Tiler as geometry manager
   * Tix->form as geometry manager (?)
@@ -95,7 +98,7 @@ my $os;      # what kind of OS we have: win/unix
 
   All data represented as following objects:
   - Array of all widgets descriptors
-  - Nesting tree array:
+  - Widgets hierarchy tree (array):
   w_Frame_001
   w_Frame_001.w_Frame_002
   w_Frame_001.w_Frame_002.w_Button_001
@@ -117,7 +120,7 @@ my $os;      # what kind of OS we have: win/unix
 
   External data representation:
   $<widget ID> = $<Parent ID> -> <Type> ( <Parameters> ) -> <Geometry>;
-  Menu items (and others that can't use geometry):
+  Menu items (and others that don't require placement):
   $<widget ID> = $<Parent ID> -> <Type> ( <Parameters> );
 
   8. Geometry conflicts and bugs in generated code
@@ -174,20 +177,13 @@ BEGIN
   $path=~s#[^/\\]+$##;
   $path='.' unless $path;
   unshift (@INC,$path);
-  foreach($^X, '/usr/local/bin/perl', '/usr/bin/perl')
-  {
-    if(-f $_)
-    {
-      $perl = $_;
-      last;
-    }
-  }
   $toolbar = "$path/toolbar";
   die "$0 installation error: directory $toolbar not found!\n"
     unless -d $toolbar;
   $os = 'win' unless $^O;
   $os = 'win' if $^O =~ /win/i;
-  $os = 'unix' if $^O =~ /linux|unix|aix|sun|solaris/i;
+  $os = 'unix' if $^O =~ /linux|unix|aix|sun|solaris|cygwin/i;
+  # we treat cygwin-X environment as "Unix-like"
 }
 
 use strict;
@@ -210,40 +206,53 @@ use Tk::Dialog;
 use Tk::Pane;
 
 use IPC::Open3;
+use Data::Dumper;
 
-# private modules:
+# editor-related modules:
 use vptk_w::ConfigRead;
-use vptk_w::ExtraWidgets;
+use vptk_w::EditorServices;
+use vptk_w::VPTK_Widget;
+use vptk_w::Project;
+use vptk_w::Project::Options;
+use vptk_w::Project::Widgets;
+use vptk_w::Project::Code;
 
 if (grep /^--?h/,@ARGV)
 {
-  # for real perl script only!
+  # this works for real perl script only!
   # does not work on M$ Win EXE-file
   system "perldoc $0";
   exit 1;
 }
 
-my $ver=q$Revision: 1.17 $;
+my $ver=q$Revision: 2.38 $;
 
 my $selected;         # Currently selected widget path
-my %widgets=();       # Tk widgets pointers for highlight
+my %widgets=();       # Displayed Tk visual objects (widgets)
 my $changes;          # Modifications flag
 my $lastfile='';      # last file used in Open/Save
-my %descriptor=();    # (id->descriptor)
+my %descriptor=();    # Mapping id->descriptor
 my @tree=('mw');      # design tree list ('.' separated entry)
 my $obj_count=0;      # counter for unique object id
 my @undo=();          # Undo buffer
 my @redo=();          # Redo buffer
-my %cnf_dlg_ballon;   # Help messages for all widget configuration options
-my (%file_opt)=(description=>'',title=>'',fullcode=>0,strict=>0);
-my ($view_balloons,$view_blink,$view_pointerxy)=(1,0,0);
+my %cnf_dlg_balloon;   # Help messages for all widget configuration options
+my $Project = vptk_w::Project->new();
+my $pOpt = vptk_w::Project::Options->new();
 my @main_clipboard=();
 my @user_auto_vars;
-my @user_subroutines;
 my @callbacks;
+my @user_subs;
+my @project_bindings;
+# Structure of project_bindings:
+# ['widget_id'=>'event name'=>'callback'], ...
+my $wProjOptionsHintMsg;
+my %IDE_settings;
+my %Project_defaults;
+my $balloon_bg_color;
+my $balloon_delay;
 
-# and here is the table of all objects' properties
-my %w_attr = &ReadWidgetsOptions("$toolbar/vptk_w.attr.cfg");
+my @AllWidgetsNames = AllWidgetsNames();
 
 # Legal parameters per geometry:
 my (%w_geom) = (
@@ -252,46 +261,48 @@ my (%w_geom) = (
   'place' => [qw/-anchor -height -width -x -y -relheight -relwidth -relx -rely/]
 );
 
-my @LegalWidgets = (grep(&HaveGeometry($_),sort keys %w_attr),'packAdjust'); 
+my @OrdinaryWidgets = (grep(HaveGeometry($_),sort @AllWidgetsNames),'packAdjust'); 
 # (excluded widgets without geometry)
+my @wrapped_icons = map(WidgetIconName($_),@AllWidgetsNames);
 #
 # ======================== Geometry management for Main window ================
 # 
 my $mw = MainWindow->new(-title=>"Visual Perl Tk $ver (widget edition)");
-&SetMainPalette($mw,'gray90','black');
-#my $mwPalette = $mw->Palette;
-#my %palette=(-background=>'gray90',-foreground=>'black');
+&ResetIDE_SettingsToDefaults();
 
 # Prepare help from HTML file:
 # 1. read HTML file
 my (@html_help)=(&ReadHTML("$toolbar/widget_help.html"));
-@html_help = 'Sorry, help file not available!' unless $html_help[0];
+@html_help = 'Sorry, help file is not available!' unless $html_help[0];
+my (@html_tutorial)=(&ReadHTML("$toolbar/tutorial.html"));
+@html_tutorial = 'Sorry, tutorial file is not available!' unless $html_tutorial[0];
 # 2. get gif-files list
-my @html_gifs=grep(/^gif/,@html_help);
+my @html_gifs=grep(/^gif/,@html_help,@html_tutorial);
 map s/^\S+\s+//,@html_gifs;
 # 3. create bold font:
 $mw->fontCreate('C_bold',qw/-family courier -weight bold/);
 
 # read in all pictures:
-foreach (qw/open save new before after subwidget 
-  undo redo viewcode properties delete exit cut copy paste
-  packadjust button text label listbox labentry entry frame labframe optionmenu
-  message scale browseentry checkbutton radiobutton menubutton cascade command
-  separator notebook notebookframe justify_right justify_left justify_center
+foreach (sort(qw/open save new before after subwidget balloon run
+  undo redo viewcode properties delete exit cut copy paste bind
+  justify_right justify_left justify_center
   undef fill_both fill_x fill_y
   rel_flat rel_groove rel_raised rel_ridge rel_solid rel_sunken
   anchor_center anchor_e anchor_n anchor_ne anchor_nw anchor_s anchor_se anchor_sw anchor_w
   side_bottom side_left side_right side_top/,
-  @html_gifs)
+  @html_gifs,@wrapped_icons))
 {
   my $pic_file="$toolbar/$_.gif";
   $pic_file = "$toolbar/$_.xpm" unless -e $pic_file;
+  unless (-e $pic_file) { 
+    warn "no file $pic_file"; next;
+  }
   $pic{$_} = $mw->Photo(-file=>$pic_file)
     unless defined $pic{$_};
 }
 
 # Read balloon messages:
-%cnf_dlg_ballon = &ReadCnfDlgBallon("$toolbar/baloon_cnf_dlg.txt");
+%cnf_dlg_balloon = &ReadCnfDlgBalloon("$toolbar/balloon_cnf_dlg.txt");
 
 my $xy; # X=nnn Y=nnn indicator
 
@@ -321,7 +332,8 @@ $menubar->Menubutton(qw/-text File -underline 0 -tearoff 0 -menuitems/ =>
     [Button => '~Save',        -command => \&file_save, -accelerator => 'Control+s'],
     [Button => 'Save ~As ...', -command => [\&file_save, 'Save As']],
     [Separator => ''],
-    [Button => '~Properties ...',   -command => \&file_properties],
+    [Button => '~Project properties ...',   -command => \&file_properties],
+    [Button => '~Editor properties ...',       -command => [\&file_properties,'IDE']],
     [Separator => ''],
     [Button => '~Quit',        -command => \&abandon,   -accelerator => 'ESC'],
   ])->pack(-side=>'left');
@@ -342,7 +354,9 @@ $menubar->Menubutton(qw/-text Edit -underline 0 -tearoff 0 -menuitems/ =>
     [Separator=>''],
     [Button => '~Cut',        -command => \&edit_cut, -accelerator => 'Control+x'],
     [Button => 'C~opy',       -command => \&edit_copy, -accelerator => 'Control+c'],
-    [Button => 'P~aste',      -command => \&edit_paste, -accelerator => 'Control+v'],
+    [Button => 'P~aste before sel', -command => \&edit_paste, -accelerator => 'Control+v'],
+    [Button => 'Pa~ste after sel', -command => [\&edit_paste,'after']],
+    [Button => 'Paste ~under sel', -command => [\&edit_paste,'under']],
     [Separator=>''],
     [Button => 'R~ename',     -command => \&rename],
     [Button => '~Delete',     -command => \&edit_delete, -accelerator => 'Delete'],
@@ -354,12 +368,12 @@ $menubar->Menubutton(qw/-text View -underline 0 -tearoff 0 -menuitems/ =>
     [Button => '~Code',       -command => sub{&CodePreview(&code_print)}],
     [Cascade => '~Options', -tearoff=>0, -menuitems =>
       [
-        [Checkbutton=>'~Show widget balloons',
-	  -variable=>\$view_balloons,-command=>\&view_repaint],
-        [Checkbutton=>'~Blink widget on selection',-variable=>\$view_blink],
+        [Checkbutton=>'~Show code preview over widget',
+          -variable=>\$IDE_settings{'view_balloons'},-command=>\&view_repaint],
+        [Checkbutton=>'~Blink widget on selection',-variable=>\$IDE_settings{'view_blink'}],
         [Checkbutton=>'Show ~mouse pointer X,Y coordinates',
-	  -variable=>\$view_pointerxy,-command=>\&view_repaint],
-	[Button => '~Re-color myself',   -command=> \&ColoringScheme ]
+          -variable=>\$IDE_settings{'view_pointerxy'},-command=>\&view_repaint],
+        [Button => '~Re-color myself',   -command=> \&ColoringScheme ]
       ]
     ],
   ])->pack(-side=>'left');
@@ -374,6 +388,7 @@ $menubar->Menubutton(qw/-text Debug -underline 0 -tearoff 0 -menuitems/ =>
 $menubar->Menubutton(qw/-text Help -underline 0 -tearoff 0 -menuitems/ =>
   [
      [Button => 'VPTk ~help',       -command => [\&ShowHelp,@html_help]],
+     [Button => 'VPTk ~tutorial',   -command => [\&ShowHelp,@html_tutorial]],
      [Button => '~Context help',    -command => \&tkpod],
      [Cascade => '~PerlTk manuals', -tearoff=>0, -menuitems =>
        [
@@ -388,7 +403,8 @@ $menubar->Menubutton(qw/-text Help -underline 0 -tearoff 0 -menuitems/ =>
          [Button => '~Events',            -command => [\&tkpod,'event']],
        ]
      ],
-     [Button => '~About',     -command => [\&ShowAboutMessage,$ver]],
+     [Button => 'Perl/Tk ~status',  -command => [\&ShowStatusMessage]],
+     [Button => '~About',           -command => [\&ShowAboutMessage,$ver]],
   ])->pack(-side=>'right');
 
 # pop-up menu on right button
@@ -400,15 +416,18 @@ $popup_insert->add('command',-label=>'After',-underline=>0,-command=>[\&insert,'
 $popup_insert->add('command',-label=>'Subwidget',-underline=>0,-command=>[\&insert,'subwidget']);
 $popup->add('cascade',-label=>'Insert',-underline=>0,-menu=>$popup_insert);
 $popup->add('command',-label=>'Properties',-underline=>0,-command=>\&edit_properties);
+$popup->add('command',-label=>'Balloons',-underline=>0,-command=>\&edit_balloon);
 $popup->add('command',-label=>'Context help',-underline=>8,-command=>\&tkpod);
 $popup->add('command',-label=>'Cut',-underline=>0,-command=>\&edit_cut,-accelerator => 'Control+x');
 $popup->add('command',-label=>'Copy',-underline=>1,-command=>\&edit_copy,-accelerator => 'Control+c');
-$popup->add('command',-label=>'Paste',-underline=>1,-command=>\&edit_paste,-accelerator => 'Control+v');
+$popup->add('command',-label=>'Paste before sel',-underline=>1,-command=>\&edit_paste,-accelerator => 'Control+v');
+$popup->add('command',-label=>'Paste after sel',-underline=>3,-command=>[\&edit_paste,'after']);
+$popup->add('command',-label=>'Paste under sel',-underline=>6,-command=>[\&edit_paste,'under']);
 $popup->add('command',-label=>'Rename',-underline=>0,-command=>\&rename);
 $popup->add('command',-label=>'Delete',-underline=>0,-command=>\&edit_delete,-accelerator => 'Delete');
 
 my $bf=$mw->Frame()->
-form(-top=>$menubar,-left=>'%0',-right=>'%100',-bottom=>'%100');
+  form(-top=>$menubar,-left=>'%0',-right=>'%100',-bottom=>'%100');
 # ===============
 # 'buttons' frame
 # ===============
@@ -427,7 +446,7 @@ $status_frame->Label(-textvariable=>\$xy,-relief=>'sunken',-borderwidth=>2,-widt
 # ==========
 # ctrl_frame
 # ==========
-$b=$mw->Balloon(-background=>'lightyellow',-initwait=>550);
+$b=$mw->Balloon();
 
 my @buttons = 
 (
@@ -447,8 +466,11 @@ my @buttons =
   ['copy',     \&edit_copy,           'Copy selected tree to clipboard'],
   ['paste',    \&edit_paste,          'Paste from clipboard before selected'],
   ['properties',\&edit_properties,    'View & edit properties'],
+  ['balloon',  \&edit_balloon,        'Edit widget\'s balloon'],
+  ['bind',     \&edit_bindings,       'Edit widget\'s binding(s)'],
   [0],
   ['viewcode', sub{&CodePreview(&code_print)}, 'Preview generated code'],
+  ['run',      \&debug_run,           'Run generated program'],
   [0],
   ['exit',     \&abandon,             'Exit program'],
 );
@@ -469,38 +491,46 @@ foreach my $button(@buttons)
 my $tf=$main_frame->Scrolled('HList', -scrollbars=>'se',-itemtype=>'imagetext')
   ->pack(-side=>'left',-fill=>'y');
 $tf->bind('<Button-1>', 
-  sub{ &set_selected($tf->info('data',$tf->infoSelection)); } );
-#  sub{ &set_selected($tf->nearest($tf->pointery-$tf->rooty)); } );
+  sub{ my $s=$tf->infoSelection; &set_selected($tf->info('data',$s))if $s; } );
 $tf->configure(
   -command  => sub{&set_selected($tf->info('data',$tf->infoSelection));&edit_properties},
   -browsecmd=> sub{&set_selected($tf->info('data',$tf->infoSelection));} );
-$tf->add('mw',-text=>'mw',-data=>'mw',-image=>$pic{lc('Frame')});
+$tf->add('mw',-text=>'mw',-data=>'mw',-image=>WidgetIcon('Frame'));
 
 my $w;
-&clear_preview(); # this will initialize preview vindow
 $tf->packAdjust(-side=>'left');
 
 $tf->bind('<Button-3>',
   sub{ &set_selected($tf->nearest($tf->pointery-$tf->rooty)); $popup->Post($mw->pointerxy)});
-$mw->bind('<Control-o>',\&file_open);
-$mw->bind('<Control-s>',\&file_save);
-$mw->bind('<Control-n>',\&file_new);
-$mw->bind('<Control-z>',\&undo);
-$mw->bind('<Control-r>',\&redo);
-$mw->bind('<Delete>',\&edit_delete);
-$mw->bind('<Control-x>',\&edit_cut);
-$mw->bind('<Control-c>',\&edit_copy);
-$mw->bind('<Control-v>',\&edit_paste);
-$mw->bind('<F1>',[\&ShowHelp,@html_help]);
-$mw->bind("<Escape>", \&abandon);
+my %EditorBindings = 
+(
+  '<Control-o>' => \&file_open,
+  '<Control-s>' => \&file_save,
+  '<Control-n>' => \&file_new,
+  '<Control-z>' => \&undo,
+  '<Control-r>' => \&redo,
+  '<Delete>'    => \&edit_delete,
+  '<Control-x>' => \&edit_cut,
+  '<Control-c>' => \&edit_copy,
+  '<Control-v>' => \&edit_paste,
+  '<F1>'        => [\&ShowHelp,@html_help],
+  '<Escape>'    => \&abandon,
+);
+map( $mw->bind($_ => $EditorBindings{$_}), keys %EditorBindings );
 $mw->geometry('=600x500+120+1'); # initial window position
 
 $mw->protocol('WM_DELETE_WINDOW',\&abandon);
 
 $mw->SelectionOwn(-selection=>'CLIPBOARD');
+&ReadIDE_Settings();
 
-&file_read(@ARGV) if scalar(@ARGV);
-&view_repaint; # force repaint!
+if (@ARGV) {
+  &file_clean;
+  &file_read(@ARGV);
+}
+else {
+  &file_new;
+}
 &set_selected('mw');
 
 MainLoop;
@@ -510,16 +540,50 @@ print "We are not supposed to be here...\n";
 ######################################################
 #     SUBROUTINES section
 ######################################################
+# we call this routine only when creating new project!!!
+sub InitProject
+{
+  my $project = shift;
+  my $perl = $pOpt->get('perl executable');
+  @project_bindings=();
+  $pOpt->init( {description=>'',title=>'',%Project_defaults,'perl executable'=>$perl,bindings=>\@project_bindings,'balloon_color'=>'lightyellow','balloon_delay'=>550} );
+  $project->push('Options'=>$pOpt);
+
+  my $pW = vptk_w::Project::Widgets->new();
+  $project->push('Widgets'=>$pW);
+
+  my $pCode = vptk_w::Project::Code->new();
+  $project->push('Code'=>$pCode);
+  $project->get('Code')->push('code before tk'=>[]);
+  $project->get('Code')->push('code before widgets'=>[]);
+  $project->get('Code')->push('code before main'=>[]);
+  $project->get('Code')->push('user code'=>[]);
+  &PopulateProject($project);
+}
+
+# fill project with data: - to be removed TBD
+sub PopulateProject{
+  my $project = shift;
+
+  foreach my $widgetPath( @tree ) {
+    my $wid = &path_to_id($widgetPath);
+    $project->get('Widgets')->add($widgetPath,$wid,$descriptor{$wid});
+  }
+}
+
+# Display dialog box for application coloring configuration
 sub ColoringScheme
 {
   my ($bg_color,$fg_color)=&GetMainPalette();
   
   my $db=$mw->DialogBox(-title=>'Choose color scheme:',-buttons=>[qw/Ok Default Dismiss/]);
   my $f;
-  $f=$db->Frame->pack(-padx=>6,-pady=>6);
-  &ColorPicker($f,'Background',\$bg_color);
-  $f=$db->Frame->pack(-padx=>6,-pady=>6);
-  &ColorPicker($f,'Foreground',\$fg_color);
+  $f=$db->Frame->pack(-padx=>6,-pady=>6,-anchor=>'w',-fill=>'x');
+  $f->Label(-text=>'Background:')->pack(-side=>'left',-fill=>'x');
+  &ColorPicker($f,'Background',\$bg_color,0,-fill=>'x',-expand=>1);
+  $f=$db->Frame->pack(-padx=>6,-pady=>6,-anchor=>'w',-fill=>'x');
+  $f->Label(-text=>'Foreground:')->pack(-side=>'left',-fill=>'x');
+  &ColorPicker($f,'Foreground',\$fg_color,0,-fill=>'x',-expand=>1);
   my $reply = $db->Show;
   return if $reply eq 'Dismiss';
   ($bg_color,$fg_color)=(qw/gray90 black/) if $reply eq 'Default';
@@ -528,21 +592,27 @@ sub ColoringScheme
   &view_repaint; # force repaint!
 }
 
+# define combo widget that used for color selection
+# arguments: 
+# $f     - frame (container widget)
+# $text  - prompt displayed on menubutton
+# $p     - pointer to "color value" variable
+# $checkbutton - boolean flag: display "enabled" checkbutton or not
 sub ColorPicker
 {
-  my($f,$text,$p,$checkbutton)=@_;
+  my($f,$text,$p,$checkbutton,@extra_opt)=@_;
   my $cl=$f->Menubutton(-text=>$text,-relief=>'raised')
-    ->pack(-side=>'right', -padx=>7);
+    ->pack(-side=>'right', -padx=>7, @extra_opt);
   my $m = $cl->Menu(qw/-tearoff 0/);
   my $var=($$p)?1:0;
   my $i=1;
-  foreach (qw/Brown Red pink wheat2 orange 
-	Yellow DarkKhaki LightSeaGreen Green DarkSeaGreen 
-	green4 DarkGreen Cyan LightSkyBlue Blue 
-	NavyBlue plum magenta1 Magenta3 purple3 
-        White gray90 gray75 gray50 Black/)
+  foreach (qw/Brown Red sienna2 pink DarkOliveGreen1 khaki4
+  DarkOrange2 DarkGoldenrod1 Yellow Green green4 DarkGreen
+	DarkSeaGreen LightSkyBlue Cyan LightSeaGreen RoyalBlue4 Blue
+	NavyBlue SlateBlue1 plum magenta1 Magenta3 purple3
+        White gray80 gray70 gray50 gray13 Black/)
   {
-    $m->command(-label => $_, -columnbreak=>(($i-1) % 5)?0:1,
+    $m->command(-label => $_, -columnbreak=>(($i-1) % 6)?0:1,
       -command=>
       [sub{$$p=shift;$var=1;$cl->configure(-background=>$$p)},$_]);
     my $i1 = $m->Photo(qw/-height 16 -width 16/);
@@ -568,6 +638,10 @@ sub ColorPicker
   }
 }
 
+# Perform one of debug actions using system-dependent terminal
+# Arguments:
+# $str   - command-line to be executed
+# $title - explanation to be displayed as window title
 sub debug_do
 {
   return &ShowDialog(-title=>'Debug',-bitmap=>'error',-text=> "File not saved!\n")
@@ -601,40 +675,63 @@ sub debug_do
   }
 }
 
+# one of debug actions - file editing
 sub debug_edit
 {
-  my $editor=$ENV{'EDITOR'} || 'vi';
+  my $editor=$IDE_settings{'text_editor'};
   my $run_str = ($os eq 'unix')?
     "$editor \$filepath &" : "$editor \$filepath";
   &debug_do($run_str,'Editing');
+  # if file not saved - exit immediately
+  return
+    if $changes;
+  return unless &ShowDialog(-title=>'Editing finished',
+    -text=>"Reload file after editing?\n(click when really finish editing)",
+    -buttons=>[qw/Yes No/]);
+  # reload data from file (read_file)
+  my $filepath=$lastfile;
+  
+  if($os eq 'unix')
+  {
+    $filepath="$ENV{PWD}/$filepath" unless $filepath=~/^\//;
+  }
+  &file_clean;
+  &file_read($filepath);
 }
 
+# debug action - run perl in "compile only" mode
 sub debug_syntax
 {
+  my $perl = $pOpt->get('perl executable');
   my $run_str = ($os eq 'unix')?
     "csh -c '$perl -c \$filepath | less'" : "$perl -c \$filepath";
   &debug_do($run_str,'Syntax check');
 }
 
+# debug action - just run generated code
 sub debug_run
 {
+  return &ShowDialog(-title=>'Debug',-bitmap=>'error',-text=> "The code is not fully executable! You can change it in 'File'->'Properties'\n")
+    unless $pOpt->data->{'fullcode'};
+  my $perl = $pOpt->get('perl executable');
   my $run_str = ($os eq 'unix')?
     "csh -c '$perl -w \$filepath | less'" : "$perl -w \$filepath";
   &debug_do($run_str);
 }
 
-sub HaveGeometry # those widgets placed without geometry manager
-{
-  return ! grep($_[0] eq $_,
-    qw/Menu command radiobutton checkbutton cascade separator NoteBookFrame packAdjust/);
+# mapping of icon according to widget type
+sub WidgetIcon {
+  return $pic{WidgetIconName($_[0])}
 }
 
+# intercepting Tk internal errors and storing in log-file
 sub Tk::Error
 {
   my ($widget,$error,@locations) = @_;
   print "DEBUG: widget <$widget> error <$error> from <@locations>\n";
 }
 
+# This routine will clear visual part of our design
 sub clear_preview
 {
   eval{map($b->detach($_),values %widgets)};
@@ -651,13 +748,15 @@ sub clear_preview
   &bind_xy_move($w);
 }
 
+# Bind X and Y coordinates display for given widget
 sub bind_xy_move
 {
   shift->bind('<Motion>',
     sub{my($x,$y)=$w->pointerxy;$x-=$w->rootx;$y-=$w->rooty;$xy="x=$x y=$y"})
-    if $view_pointerxy;
+    if $IDE_settings{'view_pointerxy'};
 }
 
+# Repaint visual part of project - preview window
 sub view_repaint
 {
   &clear_preview();
@@ -680,58 +779,23 @@ sub view_repaint
       }
       (@arg)=(%arg);
     }
-    if   ($d->{'type'} eq 'Frame')   { $tmp_vars{$id} = $x->Frame(@arg); }
-    elsif($d->{'type'} eq 'Text')    { $tmp_vars{$id} = $x->Text(@arg); }
-    elsif($d->{'type'} eq 'Entry')   { $tmp_vars{$id} = $x->Entry(@arg); }
-    elsif($d->{'type'} eq 'Message') { $tmp_vars{$id} = $x->Message(@arg); }
-    elsif($d->{'type'} eq 'BrowseEntry')   { 
-      my (%arg)=@arg;
-      my $lpack= delete $arg{'-labelPack'};
-      $lpack=~s/[\[\]']//g;
-      $tmp_vars{$id} = $x->BrowseEntry((%arg),-choices=>[qw/one two three/],
-       -labelPack=>[&split_opt($lpack)]); }
-    elsif($d->{'type'} eq 'LabEntry'){ 
-      my (%arg)=@arg;
-      my $lpack= delete $arg{'-labelPack'};
-      $lpack=~s/[\[\]']//g;
-      $tmp_vars{$id} = $x->LabEntry(%arg,-labelPack=>[&split_opt($lpack)]); 
+    if(grep($_ eq $d->{'type'}, @AllWidgetsNames) ) {
+      my $obj = vptk_w::VPTK_Widget->new($d->{'type'},-id=>$id);
+      my ($geom,$geom_opt)=(split '[)(]',$d->{'geom'});
+      $obj->InstanceData(
+        -widget_data=>{@arg},
+        -geometry_data=>{geometry=>$geom,&split_opt($geom_opt)}
+      );
+      $tmp_vars{$id} = $obj->Draw($x);
     }
-    elsif($d->{'type'} eq 'LabFrame'){ $tmp_vars{$id} = $x->LabFrame(@arg); }
-    elsif($d->{'type'} eq 'Label')   { $tmp_vars{$id} = $x->Label(@arg); }
-    elsif($d->{'type'} eq 'Listbox') { $tmp_vars{$id} = $x->Listbox(@arg);
-      $tmp_vars{$id}->insert('end', qw/item1 item2 item3/);}
-    elsif($d->{'type'} eq 'packAdjust')   { $tmp_vars{$id} = $x->packAdjust(@arg); }
-    elsif($d->{'type'} eq 'Scale')   { $tmp_vars{$id} = $x->Scale(@arg); }
-    elsif($d->{'type'} eq 'Optionmenu'){ 
-      $tmp_vars{$id} = $x->Optionmenu(-options=>[qw/one two three/]); }
-    elsif($d->{'type'} eq 'Button')  { $tmp_vars{$id} = $x->Button(@arg); }
-    elsif($d->{'type'} eq 'Radiobutton')  { $tmp_vars{$id} = $x->Radiobutton(@arg); }
-    elsif($d->{'type'} eq 'Checkbutton')  { $tmp_vars{$id} = $x->Checkbutton(@arg); }
-    elsif($d->{'type'} eq 'Menubutton')  { $tmp_vars{$id} = $x->Menubutton(@arg); }
-    elsif($d->{'type'} eq 'cascade')  { $tmp_vars{$id} = $x->cascade(@arg); }
-    elsif($d->{'type'} eq 'command')  { $tmp_vars{$id} = $x->command(@arg); }
-    elsif($d->{'type'} eq 'checkbutton')  { $tmp_vars{$id} = $x->checkbutton(@arg); }
-    elsif($d->{'type'} eq 'radiobutton')  { $tmp_vars{$id} = $x->radiobutton(@arg); }
-    elsif($d->{'type'} eq 'separator')  { $tmp_vars{$id} = $x->separator(@arg); }
-    elsif($d->{'type'} eq 'NoteBook')  { $tmp_vars{$id} = $x->NoteBook(@arg); }
-    elsif($d->{'type'} eq 'NoteBookFrame')  { $tmp_vars{$id} = $x->add($id,@arg); }
-    elsif($d->{'type'} eq 'Menu')  {
-      # For cascade-based Menu use root menu widget in place of $x:
-      my $root_menu=$x;
-      $root_menu=$tmp_vars{$descriptor{$d->{'parent'}}->{'parent'}}
-        if $descriptor{$d->{'parent'}}->{'type'} eq 'cascade';
-      $tmp_vars{$id} = $root_menu->Menu(@arg); 
-      $x->configure(-menu=>$tmp_vars{$id}); }
-    else{print "ERROR: widget of type ".$d->{'type'}." can't be displayed!\n";}
-
     if(&HaveGeometry($d->{'type'}))
     {
-      my ($geom,$geom_opt)=(split '[)(]',$d->{'geom'});
       my $balloonmsg=&code_line_print($path);
       $balloonmsg =~ s/ -> / ->\n/g;
+      $balloonmsg =~ s/,/,  \n/g;
 
       $b->attach($tmp_vars{$id},-balloonmsg=>$balloonmsg)
-       if $view_balloons && 
+       if $IDE_settings{'view_balloons'} && 
          $d->{'type'} !~ /^(BrowseEntry|LabFrame)$/; # bug in BrowseEntry/LabFrame?
       $tmp_vars{$id}->bind('<Button-3>',
         sub{&set_selected($tf->info('data',$path));$popup->Post($mw->pointerxy)});
@@ -740,66 +804,511 @@ sub view_repaint
       $tmp_vars{$id}->bind('<Double-1>',
         sub{&set_selected($tf->info('data',$path));&edit_properties});
       &bind_xy_move($tmp_vars{$id});
-      if($geom eq 'pack')
-      {
-        $tmp_vars{$id}->pack(&split_opt($geom_opt));
-      }
-      elsif($geom eq 'grid')
-      {
-        $tmp_vars{$id}->grid(&split_opt($geom_opt));
-      }
-      elsif($geom eq 'place')
-      {
-        $tmp_vars{$id}->place(&split_opt($geom_opt));
-      }
     }
     $widgets{$path}=$tmp_vars{$id};
   }
   $widgets{'mw'}=$w;
 }
 
+sub SetProjOptHint
+{
+  my ($text) = @_;
+  $wProjOptionsHintMsg -> configure ( -text => $text );
+}
+
+sub GetResourceFileName
+{
+  my ($read) = @_;
+  my $name = 'vptk_w.rc';
+  foreach my $p('.',$ENV{'HOME'},$path)
+  {
+    if($read)
+    {
+      return "$p/$name" if -r "$p/$name";
+    }
+    else
+    {
+      return "$p/$name" if -w "$p/$name";
+    }
+  }
+  return undef if $read;
+  return $name;
+}
+
+sub ReadIDE_Settings
+{
+  # 1. Get file name
+  # 2. Read IDE settings
+  # 3. Read project defaults
+  my $filename = &GetResourceFileName(1);
+  unless($filename)
+  {
+    &ShowDialog(-title=>'Warning:',-text=>"Failed to find configuration file - reset to defaults",-buttons=>['Continue']);
+    &ResetIDE_SettingsToDefaults;
+    &WriteIDE_Settings(%{$pOpt->data});
+    return;
+  }
+  unless(open(FILE,$filename))
+  {
+    &ShowDialog(-title=>'Error:',-text=>"Failed to read configuration file $filename",-buttons=>['Continue']);
+    return;
+  }
+  my $section;
+  my %config;
+  while(<FILE>)
+  {
+    chomp;
+    s/[\n\r]$//g;
+    next if /^[#;]/;
+    if(/^\[\S+\]/)
+    {
+      ($section) = /^\[(\S+)\]/;
+      $config{$section}={};
+      next;
+    }
+    if(/=/)
+    {
+      my ($key,$val) = /([^=]+)=(.*)/;
+      $config{$section}->{$key} = $val if $key;
+    }
+  }
+  close FILE; 
+  map($IDE_settings{$_}=$config{'IDE_settings'}->{$_},keys %{$config{'IDE_settings'}});
+  &SetMainPalette($mw,$IDE_settings{'bg_color'},$IDE_settings{'fg_color'});
+  $b->configure(-background=>'lightyellow',-initwait=>550);
+  $Project_defaults{'fullcode'} = $config{'project_settings'}->{'fullcode'};
+  $Project_defaults{'strict'} = $config{'project_settings'}->{'strict'};
+}
+
+sub WriteIDE_Settings
+{
+  my (%proj_opt) = @_;
+  # 1. Get file name
+  # 2. Write IDE settings
+  # 3. Write project defaults
+  my $filename = &GetResourceFileName(0);
+  unless(open(FILE,">$filename"))
+  {
+    &ShowDialog(-title=>'Error:',-text=>"Failed to write configuration file $filename",-buttons=>['Continue']);
+    return;
+  }
+  my ($bg_color,$fg_color)=&GetMainPalette();
+  print FILE "[IDE_settings]\n";
+  foreach my $key(keys %IDE_settings)
+  {
+    print FILE "$key=$IDE_settings{$key}\n" if $key;
+  }
+  print FILE "bg_color=$bg_color\n";
+  print FILE "fg_color=$fg_color\n";
+  print FILE "[project_settings]\n";
+  print FILE "fullcode=$proj_opt{'fullcode'}\n";
+  print FILE "strict=$proj_opt{'strict'}\n";
+
+  close FILE;
+}
+
+sub ResetIDE_SettingsToDefaults
+{
+  # 1. Reset IDE settings
+  # (we use dirty trick with hash deep copy to preserve some hash pointers)
+  my %defaultIDE_settings = (
+    'view_balloons'=>1,'view_blink'=>0,'view_pointerxy'=>0,
+    'auto_options'=>1,'hint_msg'=>1,
+    'bg_color'=>'gray90',
+    'fg_color'=>'black',
+    'text_editor'=>($ENV{'EDITOR'} || 'vi'));
+  map($IDE_settings{$_}=$defaultIDE_settings{$_},keys %defaultIDE_settings);
+  $IDE_settings{'perldoc'} = ($os eq 'win')?
+    'start cmd /c perldoc' :
+    'xterm -e perldoc';
+  &SetMainPalette($mw,$IDE_settings{'bg_color'},$IDE_settings{'fg_color'});
+  # 2. Reset project defaults
+  %Project_defaults = ('fullcode'=>1,'strict'=>1);
+}
+
+# show dialog box and enter project-related parameters
 sub file_properties
 {
-  my $db = $mw->DialogBox(-title=>'File setup',-buttons=>['Ok','Cancel']);
-  my (@p)=(qw/-sticky we -padx 20 -pady 10 -column 0/);
+  my ($open_tab) = (@_); # open dialog in Balloon notebook
+  my $db = $mw->DialogBox(-title=>'Project setup',-buttons=>['Ok','Cancel']);
+  my (@p)=(qw/-side top -fill x -padx 10 -pady 5/);
+  my %NB_NameToRaise = (
+    'balloon'   => 'wBalloonsNF',
+    'callbacks' => 'wUserCodeAfterMFrame',
+    'bind'      => 'wBindingsNF',
+    'IDE'       => 'wIDE_OptionsNF'
+    );
+  my $TabToRaise = $NB_NameToRaise{$open_tab};
+  @user_subs = grep(!/^sub\W/,@callbacks); 
+  my ($selSub)=@user_subs;
 
   # copy options
-  my (%new_opt)=(%file_opt);
+  my (%new_opt)=%{$pOpt->data};
+  my (%saved_IDE_settings)=%IDE_settings;
+  my $p_user_subroutines = $Project->get('Code')->get('user code');
+  my $p_code_before_main = $Project->get('Code')->get('code before main');
+  my $p_code_before_tk = $Project->get('Code')->get('code before tk');
+  my $p_code_before_widgets = $Project->get('Code')->get('code before widgets');
 
-  my $row=0;
-  $db->LabEntry(-label=>'Program description:',-width=>45,
-    -textvariable=>\$new_opt{'description'})->grid(@p,-row=>$row++);
-  $db->LabEntry(-label=>'Window title:',-width=>45,
-    -textvariable=>\$new_opt{'title'})->grid(@p,-row=>$row++);
-  $db->Checkbutton(-text=>'Generate full executable program',-anchor=>'w',
-    -variable=>\$new_opt{'fullcode'})->grid(@p,-row=>$row++);
-  $db->Checkbutton(-text=>'Use strict output syntax',-justify=>'left',-anchor=>'w',
-    -variable=>\$new_opt{'strict'})->grid(@p,-row=>$row++);
-  my $frm=$db->LabFrame(-labelside=>'acrosstop',-label=>'User code (callbacks)')
-    ->grid(@p,-row=>$row++);
-  my $txt=$frm->Scrolled(qw/Text -scrollbars oe -height 15 -background white/,
+  my $wProjOptionsNB = $db -> NoteBook (  ) -> pack();
+  $wProjOptionsHintMsg = $db -> Message ( -aspect=>750 ) -> pack();
+  $wProjOptionsHintMsg->packForget() unless $IDE_settings{'hint_msg'};
+  my ($txtBeforeMain,$txtUserCode,$wProjDescrEntr,$txtBeforeTk,$txtBeforeWidgets);
+  my $wProjGeneralFrame = $wProjOptionsNB -> add ( 'wProjGeneralFrame', -wraplength=>50, -label=>'Project options', -justify=>'left', -raisecmd=>sub{
+    $wProjDescrEntr->focus();
+    &SetProjOptHint( "Hint: if you don't want to see this window when creating new project - enter 'Editor options' tab and un-check respective setting");
+    } );
+  my $wIDE_OptionsNF = $wProjOptionsNB -> add ( 'wIDE_OptionsNF', -wraplength=>50, -label=>'Editor options', -justify=>'left', -raisecmd=>sub{
+      &SetProjOptHint( "Here you can manage Editor-related options. To hide this message in all dialog boxes un-check respective setting above.");
+  });
+  $wIDE_OptionsNF->Checkbutton(-text=>"Automatically open project options window (recommended for beginner)",-anchor=>'w',-variable=>\$IDE_settings{'auto_options'})->pack(@p);
+  $wIDE_OptionsNF->Checkbutton(-text=>"Show hint message in dialog boxes (recommended for beginner)",-anchor=>'w',-variable=>\$IDE_settings{'hint_msg'})->pack(@p);
+  $wIDE_OptionsNF->LabEntry(-label=>'Text editor:',
+    -labelPack=>[-side=>'left',-anchor=>'n'],
+    -textvariable=>\$IDE_settings{'text_editor'})->pack(@p);
+  $wIDE_OptionsNF->LabEntry(-label=>'Perldoc utility:',
+    -labelPack=>[-side=>'left',-anchor=>'n'],
+    -textvariable=>\$IDE_settings{'perldoc'})->pack(@p);
+  $wIDE_OptionsNF->Checkbutton(-text=>"Show code preview over widgets",-anchor=>'w',-variable=>\$IDE_settings{'view_balloons'})->pack(@p);
+  $wIDE_OptionsNF->Checkbutton(-text=>"Blink selected widget",-anchor=>'w',-variable=>\$IDE_settings{'view_blink'})->pack(@p);
+  $wIDE_OptionsNF->Checkbutton(-text=>"Show cursor coordinates",-anchor=>'w',-variable=>\$IDE_settings{'view_pointerxy'})->pack(@p);
+  $wIDE_OptionsNF->Button(-text=>'Coloring scheme...',-anchor=>'w',-command=>\&ColoringScheme)->pack(@p);
+  my $wButtonsFrm=$wIDE_OptionsNF->Frame()->pack(@p);
+  $wButtonsFrm->Button(-text=>'Save this setting as default',-command=>
+    sub{ &WriteIDE_Settings(%new_opt);}
+    )->pack(-side=>'left');
+  $wButtonsFrm->Button(-text=>'Restore from saved settings',-command=>
+    sub { &ReadIDE_Settings; }
+    )->pack(-side=>'left',-padx=>10);
+  $wButtonsFrm->Button(-text=>'Reset to factory settings',-command=>
+    sub { &ResetIDE_SettingsToDefaults; }
+    )->pack(-side=>'left');
+  $wProjDescrEntr=$wProjGeneralFrame->LabEntry(-label=>'Program description (inserted to code as a comment):',-width=>45,
+    -textvariable=>\$new_opt{'description'})->pack(@p);
+  $wProjGeneralFrame->LabEntry(-label=>'Window title:',-width=>45,
+    -textvariable=>\$new_opt{'title'})->pack(@p);
+  my $fullExeCheckbtn = $wProjGeneralFrame->Checkbutton(
+    -text=>'Generate full executable program (only widgets definition when unchecked)',-anchor=>'w',
+    -variable=>\$new_opt{'fullcode'})->pack(@p);
+  $wProjGeneralFrame->Checkbutton(-text=>'Use strict output syntax (see "perldoc strict" for details)',-justify=>'left',-anchor=>'w',
+    -variable=>\$new_opt{'strict'})->pack(@p);
+
+  my $wUserCodeBeforeTk = $wProjOptionsNB -> add ( 'wUserCodeBeforeTk', -wraplength=>80, -label=>'User code before Tk part', -justify=>'left', -state=>'normal', -raisecmd=>sub{
+      &SetProjOptHint( "This code will run before Tk part of your project.\n".
+    "Note that widgets are still undefined at this stage; it could be a\n".
+    "good idea to put here variables definition and ARGV parsing.");
+      } );
+  $txtBeforeTk=$wUserCodeBeforeTk->Scrolled(qw/Text -scrollbars oe -height 15 -background white/,
+    -foreground=>'black'
+    )->pack(-fill=>'both',-expand=>1);
+  map($txtBeforeTk->insert('end',"$_\n"),@$p_code_before_tk)
+    if @$p_code_before_tk;
+  my $wUserCodeBeforeWidgets = $wProjOptionsNB -> add ( 'wUserCodeBeforeWidgets', -wraplength=>100, -label=>'User code before widgets definition', -justify=>'left', -state=>'normal', -raisecmd=>sub{
+      &SetProjOptHint( "This code will run before widgets definition.\n".
+    "Note that mw already defined at this stage; this section could be\n".
+    "useful for Tk-related configuration and initialization.");
+      } );
+  $txtBeforeWidgets=$wUserCodeBeforeWidgets->Scrolled(qw/Text -scrollbars oe -height 15 -background white/,
+    -foreground=>'black'
+    )->pack(-fill=>'both',-expand=>1);
+  map($txtBeforeWidgets->insert('end',"$_\n"),@$p_code_before_widgets)
+    if @$p_code_before_widgets;
+  my $wUserCodeBeforeMFrame = $wProjOptionsNB -> add ( 'wUserCodeBeforeMFrame', -wraplength=>90, -label=>'User code before main loop', -justify=>'left', -state=>'normal', -raisecmd=>sub{
+      $txtBeforeMain->focus();
+      &SetProjOptHint( "This code will run before GUI part of your project.\n".
+    "Note that \$mw and all widgets will be already\n".
+    "defined at this stage, but not visible.");
+      } );
+  $txtBeforeMain=$wUserCodeBeforeMFrame->Scrolled(qw/Text -scrollbars oe -height 15 -background white/,
+    -foreground=>'black'
+    )->pack(-fill=>'both',-expand=>1);
+  map($txtBeforeMain->insert('end',"$_\n"),@$p_code_before_main)
+    if @$p_code_before_main;
+  my $wUserCodeAfterMFrame = $wProjOptionsNB -> add ( 'wUserCodeAfterMFrame', -wraplength=>80, -label=>'User code after main loop', -justify=>'left', -state=>'normal', -raisecmd=>sub{
+      $txtUserCode->focus();
+      &SetProjOptHint("Here you can define your callbacks for GUI events.\n".
+    "All subroutines defined here will be automatically\n".
+    "inserted into callback selection listbox.");} );
+
+  my $wBalloonsNF = $wProjOptionsNB -> add ( 'wBalloonsNF', -label=>'Balloons', -justify=>'left', -state=>'normal' );
+  $balloon_bg_color = $Project->get('Options')->get('balloon_color');
+  $balloon_delay    = $Project->get('Options')->get('balloon_delay');
+  my $wBlnEntry=&PopulateBalloonDialog($wBalloonsNF);
+
+  $wProjOptionsNB->pageconfigure('wBalloonsNF',-raisecmd=>
+     sub{
+       $wBlnEntry->focus() if ref $wBlnEntry;
+       &SetProjOptHint("Balloon is a text that appear in ".
+    "a popping 'cloud' next to the widget when ".
+    "user stops a cursor on it. ".
+    "Newlines are Ok (as \\n digraph).\n".
+    "To erase balloon just clear all text in editing box.");
+       }
+     );
+  my $wBindingsNF = $wProjOptionsNB -> add ( 'wBindingsNF', -label=>'Bindings', -justify=>'left', -state=>'normal', -raisecmd=>sub{&SetProjOptHint("The bind method associates callbacks with X events\n".
+  "You can assign more than one bind to same widget")} );
+
+  my ($selBind)=@project_bindings; # we take 1st as default
+  my $wBindLB = $wBindingsNF->Listbox(-selectmode=>'single')->
+    pack(-anchor=>'nw',-side=>'left',-fill=>'both',-expand=>1);
+  $wBindLB->insert('end'=>@project_bindings);
+  $wBindLB->bind('<<ListboxSelect>>'=>sub{$selBind=$wBindLB->get('anchor')});
+  my $wBindFrm = $wBindingsNF->Frame()->pack(-anchor=>'nw',-side=>'left',-fill=>'y');
+  $wBindFrm->LabEntry(-label=>'Bind:',-state=>'readonly',-textvariable=>\$selBind,
+    -labelPack=>[-side=>'left',-anchor=>'n'],-justify=>'left')->
+    pack(-pady=>10,-padx=>10,-fill=>'x');
+  $wBindFrm->Button(-text=>'Create ...',-command=>[\&BindCreate,\$wBindLB,\$selBind])->
+    pack(-pady=>10,-padx=>10,-fill=>'x');
+  $wBindFrm->Button(-text=>'Delete!',-command=>[\&BindDelete,\$wBindLB,\$selBind])->
+    pack(-pady=>10,-padx=>10,-fill=>'x');
+  $wBindFrm->Button(-text=>'Read more about Binding ...',-command=>[\&tkpod,'bind'])->
+    pack(-pady=>10,-padx=>10,-fill=>'x');
+  my $wUserCodeTopFrm=$wUserCodeAfterMFrame->Frame()->pack(-fill=>'x');
+  my $wSubNameEntry = $wUserCodeTopFrm->BrowseEntry(-width=>14,
+          -variable=>\$selSub,-choices=>\@user_subs)->pack(-side=>'left',-pady=>5,-fill=>'x',-expand=>1);
+  my $wButtonsFrame = $wUserCodeTopFrm->Frame()->pack(-side=>'left',-anchor=>'nw');
+  $wButtonsFrame->Button(-text=>'create',-command=>[\&UserCodeCreate,\$selSub,\$txtUserCode,$wSubNameEntry])->pack(-side=>'left',-padx=>5);
+  $wButtonsFrame->Button(-text=>'change',-command=>[\&UserCodeChange,\$selSub,\$txtUserCode])
+    ->pack(-side=>'left',-padx=>5);
+  $wButtonsFrame->Button(-text=>'delete',-command=>[\&UserCodeDelete,\$selSub,\$txtUserCode,$wSubNameEntry])->pack(-side=>'left',-padx=>5);
+  $wButtonsFrame->Button(-text=>'help...',-command=>[\&tkpod,'callbacks'])->pack(-side=>'left',-padx=>5);
+  $txtUserCode=$wUserCodeAfterMFrame->Scrolled(qw/Text -scrollbars oe -height 15 -background white/,
     -foreground=>'black'#$palette{'-foreground'}
-    )->pack();
-  my $signature=(@user_subroutines) ?
-    shift(@user_subroutines) : '#===vptk end===< DO NOT CODE ABOVE THIS LINE >===';
-  map($txt->insert('end',"$_\n"),@user_subroutines);
+    )->pack(-fill=>'both',-expand=>1);
+  my $signature=(@$p_user_subroutines) ?
+    shift(@$p_user_subroutines) : '#===vptk end===< DO NOT CODE ABOVE THIS LINE >===';
+  map($txtUserCode->insert('end',"$_\n"),@$p_user_subroutines);
   $db->bind('<Key-Return>',undef);
+  $wProjOptionsNB->raise($TabToRaise) if $TabToRaise;
   $db->resizable(1,0);
-  &Coloring($db); #$db->RecolorTree($Palette);
+  &Coloring($db);
   # show dialog
   my $reply=$db->Show();
-
-  (@user_subroutines)=($signature,@user_subroutines);
-  return if $reply eq 'Cancel';
+  (@$p_user_subroutines)=($signature,@$p_user_subroutines);
+  if ($reply eq 'Cancel')
+  {
+    &undo;
+    %IDE_settings = %saved_IDE_settings;
+    &SetMainPalette($mw,$IDE_settings{'bg_color'},$IDE_settings{'fg_color'});
+    $b->configure(-background=>'lightyellow',-initwait=>550);
+    return;
+  }
 
   # apply new options
-  (%file_opt) = (%new_opt);
+  %{$pOpt->data} = %new_opt;
+  $Project->get('Options')->set('balloon_color',$balloon_bg_color);
+  $Project->get('Options')->set('balloon_delay',$balloon_delay);
 
-  (@user_subroutines)=($signature,split("\n",$txt->get('0.0','end')));
+  if($pOpt->get('fullcode')) {
+    (@$p_user_subroutines)=($signature,split("\n",$txtUserCode->get('0.0','end')));
+    (@$p_code_before_main)=(split("\n",$txtBeforeMain->get('0.0','end')));
+    (@$p_code_before_widgets)=(split("\n",$txtBeforeWidgets->get('0.0','end')));
+    (@$p_code_before_tk)=(split("\n",$txtBeforeTk->get('0.0','end')));
+  }
+  else {
+    (@$p_user_subroutines)=();
+    (@$p_code_before_main)=();
+  }
   
-  map(&PushCallback(/sub\s+([^\s\{]+)/),@user_subroutines);
+  map(&PushCallback(/sub\s+([^\s\{]+)/),@$p_user_subroutines);
 
   &changes(1); # can't store undo info so far!
+}
+
+sub UserCodeDelete
+{
+  my ($selSub,$txtUserCode,$wSubNameEntry)=@_;
+
+  my $id = $$selSub;
+  $id =~ s/^\\&//;
+
+  unless ($id)
+  {
+    &ShowDialog(-title=>'Error:',-text=>"Subroutine name empty or illegal!\n",-buttons=>['Continue']);
+    return;
+  }
+  my $arg = $id;
+  $arg="\\\&$arg" if $arg=~/^\w/ && $arg!~/^(sub[\s\{]|\[)/;
+  unless (grep($arg eq $_, @user_subs))
+  {
+    &ShowDialog(-title=>'Error:',-text=>"Subroutine '$id' not found!\n",-buttons=>['Continue']);
+    return;
+  }
+  # find definition in text
+  $$txtUserCode->SetCursor("0.0");
+  $$txtUserCode->FindNext(-forward,-regexp,-nocase,"^sub $id(\$|\\W)");
+  if($$txtUserCode->GetTextTaggedWith("sel"))
+  {
+    # remove it in text
+    $$txtUserCode->delete("sel.first","sel.last+1 chars");
+    # remove it's name from callbacks
+    @callbacks = grep($arg ne $_, @callbacks);
+    @user_subs = grep(!/^sub\W/,@callbacks); 
+    # update listbox
+    $wSubNameEntry->configure(-choices=>\@user_subs);
+    $wSubNameEntry->focus();
+  }
+  else
+  {
+    &ShowDialog(-title=>'Error:',-text=>"Subroutine '$id' definition not found!\n",-buttons=>['Continue']);
+  }
+}
+
+sub BindDelete
+{
+  my ($pLB,$pLE) = @_;
+  my $selected = ${$pLB}->get('active');
+  # remove from array selected element
+  @project_bindings = grep($_ ne $selected, @project_bindings);
+  # update listbox
+  ${$pLB}->delete(0,'end');
+  ${$pLB}->insert('end'=>@project_bindings);
+  # update lab-entry
+  (${$pLE})=@project_bindings; # we take 1st as default
+}
+
+sub PopulateBindDialog
+{
+  my ($db,$bindSelWidget,$bindSelEvent,$bindSelCallb) = @_;
+  my @modifiers = qw/Control Shift Lock Button1 1 Button2 2 Button3 3 Button4 4 Button5 5
+    Mod1 M1 Mod2 M2 Mod3 M3 Mod4 M4 Mod5 M5 Alt Double Triple Quadruple/;
+  my @event_types = qw/ Activate Destroy Map ButtonPress Button Enter MapRequest
+    ButtonRelease Expose Motion Circulate FocusIn MouseWheel CirculateRequest FocusOut Property
+    Colormap Gravity Reparent Configure KeyPress Key ResizeRequest
+    ConfigureRequest KeyRelease Unmap Create Leave Visibility Deactivate/;
+  unshift(@modifiers,'');
+  unshift(@event_types,'');
+  my ($bindM1, $bindM2, $bindT);
+  my ($event_detail);
+
+  my $wBindTopFr = $db -> Frame ( -relief=>'flat' ) -> pack(-anchor=>'nw', -pady=>10, -fill=>'x', -padx=>10);
+  my $wBindWidgL = $wBindTopFr -> Label ( -justify=>'left', -textvariable=>$bindSelWidget ) -> pack(-anchor=>'nw', -side=>'left');
+  $wBindTopFr -> Label ( -justify=>'left', -text=>"-> bind('" ) -> pack(-anchor=>'nw', -side=>'left');
+  my $wBindEvntL = $wBindTopFr -> Label ( -justify=>'left', -textvariable=>\$bindSelEvent ) -> pack(-anchor=>'nw', -side=>'left');
+  $wBindTopFr -> Label ( -justify=>'left', -text=>"' =>" ) -> pack(-anchor=>'nw', -side=>'left');
+  my $wBindCallbL = $wBindTopFr -> Label ( -justify=>'left', -relief=>'flat', -textvariable=>$bindSelCallb ) -> pack(-anchor=>'nw', -side=>'left');
+  $wBindTopFr -> Label ( -justify=>'left', -text=>");" ) -> pack(-anchor=>'nw', -side=>'left');
+  my $wBindDlgNB = $db -> NoteBook (  ) -> pack(-fill=>'both',-expand=>1);
+  my $wBindW_NBF = $wBindDlgNB -> add ( 'wBindW_NBF', -label=>'Widget', -justify=>'left', -state=>'normal' );
+  my $wBindW_LB = $wBindW_NBF -> Scrolled ( 'HList', -scrollbars=>'osoe' ) -> pack(-pady=>8, -fill=>'both', -padx=>8);
+  $wBindW_LB->bind('<Button-1>'=>sub{$$bindSelWidget=$wBindW_LB->info('data',$wBindW_LB->infoSelection)});
+  map($wBindW_LB->add($_,-text=>(/([^\.]+)$/),-data=>(/([^\.]+)$/))=>@tree);
+  my $browsecmd = [\&update_event_var,$bindSelEvent,\$event_detail,\$bindM1,\$bindM2,\$bindT];
+  my $wBindE_NBF = $wBindDlgNB -> add ( 'wBindE_NBF', -label=>'Event', -justify=>'left', -state=>'normal' );
+  my $wBindEv1_BE = $wBindE_NBF -> BrowseEntry ( -variable=>\$bindM1, -state=>'readonly', -label=>'Modifier1:', -justify=>'left', -labelPack=>[-side=>'left',-anchor=>'n'], -choices=>\@modifiers, -browsecmd=>$browsecmd ) -> pack(-anchor=>'nw', -fill=>'x', -padx=>8);
+  my $wBindEv2_BE = $wBindE_NBF -> BrowseEntry ( -variable=>\$bindM2, -state=>'readonly', -label=>'Modifier2:', -justify=>'left', -labelPack=>[-side=>'left',-anchor=>'n'], -choices=>\@modifiers, -browsecmd=>$browsecmd ) -> pack(-anchor=>'nw', -fill=>'x', -padx=>8);
+  my $wBindEv3_BE = $wBindE_NBF -> BrowseEntry ( -variable=>\$bindT, -state=>'readonly', -label=>'Type:', -justify=>'left', -labelPack=>[-side=>'left',-anchor=>'n'], -choices=>\@event_types, -browsecmd=>$browsecmd ) -> pack(-anchor=>'nw', -fill=>'x', -padx=>8);
+  my $wBindEv4_BE = $wBindE_NBF -> LabEntry ( -label=>'Detail:', -justify=>'left', -labelPack=>[-side=>'left',-anchor=>'n'], -textvariable=>\$event_detail, -validatecommand=>$browsecmd, -validate=>'all' ) -> pack(-anchor=>'nw', -fill=>'x', -padx=>8, -pady=>18 );
+  my $wBindC_NBF = $wBindDlgNB -> add ( 'wBindC_NBF', -label=>'Callback', -justify=>'left', -state=>'normal' );
+  my $wBindCallb_BE = $wBindC_NBF -> BrowseEntry ( -label=>'Function:', -justify=>'left', -labelPack=>[-side=>'left',-anchor=>'n'], -relief=>'sunken', -variable=>$bindSelCallb, -state=>'normal' ) -> pack(-fill=>'x',-expand=>0);
+  # update listbox content respectively
+  $wBindCallb_BE->configure(-choices=>\@callbacks);
+  return ($wBindW_LB);
+
+}
+
+sub update_event_var
+{
+  my ($bindSelEvent,$event_detail,$bindM1,$bindM2,$bindT,$ev_d)=@_;
+  $ev_d = $$event_detail if scalar(@_)<=7 || ref $ev_d;
+  $$bindSelEvent = '<'.join('-', $$bindM1, $$bindM2, $$bindT, $ev_d).'>';
+  $$bindSelEvent =~ s/-+/-/g;
+  $$bindSelEvent =~ s/^<-/</;
+  $$bindSelEvent =~ s/->$/>/;
+  1;
+}
+
+sub BindCreate
+{
+  my ($pLB,$pLE) = @_;
+  my $new_bind = "'test'=>'<123>'=>\\&kuku";
+  # open dialog box and ask for 3 bind components
+  my $db = $mw->DialogBox(-title=>'Bind setup',-buttons=>['Ok','Cancel']);
+  my ($bindSelCallb,$bindSelEvent,$bindSelWidget);
+
+  &PopulateBindDialog($db,\$bindSelWidget,\$bindSelEvent,\$bindSelCallb);
+  $db->resizable(1,0);
+  &Coloring($db);
+  # show dialog
+  my $reply=$db->Show();
+  return if $reply eq 'Cancel';
+  # on 'Ok' - check that the same is not exist
+  # insert new bind into array
+  $bindSelWidget =~ s/^.*\.//;
+  $new_bind = $bindSelWidget."->bind('$bindSelEvent',$bindSelCallb);";
+  &PushCallback($bindSelCallb);
+  push(@project_bindings,$new_bind);
+  # update listbox
+  ${$pLB}->delete(0,'end');
+  ${$pLB}->insert('end'=>@project_bindings);
+  # update lab-entry
+  (${$pLE})=@project_bindings; # we take 1st as default
+}
+
+sub UserCodeCreate
+{
+  my ($selSub,$txtUserCode,$wSubNameEntry)=@_;
+
+  my $id = $$selSub;
+  $id =~ s/^\\&//;
+
+  unless ($id)
+  {
+    &ShowDialog(-title=>'Error:',-text=>"Subroutine name empty or illegal!\n",-buttons=>['Continue']);
+    return;
+  }
+  # check, do we have such sub id?
+  # if not - create template in txt-widget
+  if(&PushCallback($id))
+  {
+    $$txtUserCode->insert('end',"\nsub $id\n{\n\n}\n");
+    @user_subs = grep(!/^sub\W/,@callbacks); 
+    # update listbox content respectively
+    $wSubNameEntry->configure(-choices=>\@user_subs);
+  }
+  else
+  {
+    # say that such sub already defined
+    &ShowDialog(-title=>'Error:',-text=>"Subroutine '$id' already defined!\n",-buttons=>['Continue']);
+  }
+}
+
+# User code routine focus for changes
+sub UserCodeChange
+{
+  my ($selSub,$txtUserCode)=@_;
+  my $id = $$selSub;
+  $id =~ s/^\\&//;
+
+  unless ($id)
+  {
+    &ShowDialog(-title=>'Error:',-text=>"Subroutine name empty or illegal!\n",-buttons=>['Continue']);
+    return;
+  }
+  # find routine index in code and place cursor there
+  $$txtUserCode->SetCursor("0.0");
+  $$txtUserCode->FindNext(-forward,-regexp,-nocase,"^sub $id(\$|\\W)");
+  if($$txtUserCode->GetTextTaggedWith("sel"))
+  {
+    $$txtUserCode->SetCursor("sel.last");
+    $$txtUserCode->focus();
+  }
+  else
+  {
+    &ShowDialog(-title=>'Error:',-text=>"Subroutine '$id' not found!\n",-buttons=>['Continue']);
+  }
+}
+
+# Action: clean all project
+sub file_clean
+{
+  &struct_new;
+  @callbacks=();
+  &changes(0);
+  @redo=(); @undo=(); # clear undo/redo stacks
+  $selected='mw';
+  &InitProject($Project);
+  &view_repaint; # force repaint!
 }
 
 sub file_new
@@ -808,14 +1317,12 @@ sub file_new
 
   return unless &check_changes;
 
-  &struct_new;
-  &changes(0);
-  &view_repaint; # force repaint!
-  @redo=(); @undo=(); # clear undo/redo stacks
-  @user_subroutines=();
-  (%file_opt)=(description=>'',title=>'',fullcode=>0,strict=>0);
+  &file_clean;
+  $lastfile='';
+  &file_properties if $IDE_settings{'auto_options'};
 }
 
+# Cleaning internal project structures defining widgets set
 sub struct_new
 {
   #________________________________
@@ -823,7 +1330,7 @@ sub struct_new
   &clear_preview();
   # clean tree widget:
   $tf->delete('all');
-  $tf->add('mw',-text=>'mw',-data=>'mw',-image=>$pic{lc('Frame')});
+  $tf->add('mw',-text=>'mw',-data=>'mw',-image=>WidgetIcon('Frame'));
   #________________________________
   # data section:
   @tree=('mw');
@@ -834,18 +1341,25 @@ sub struct_new
   }
   %widgets=();
   @user_auto_vars=();
-  @callbacks=();
 }
 
+# make widget passed as argument "selected"
 sub set_selected
 {
   $selected = shift;
-  $status->configure(-text=>"Selected: $selected");
+  my $display_selected = $selected;
+  if(length($display_selected)>40)
+  {
+    $display_selected = substr($selected,0,20) . '...' . substr($selected,-20)
+  }
+  $status->configure(-text=>"Selected: $display_selected");
   # highlight respective object:
   return unless defined $widgets{$selected};
   $tf->anchorClear(); $tf->selectionClear();
   $tf->anchorSet($selected); $tf->selectionSet($selected);
-  return unless $view_blink; # return here if no blink
+  return unless $IDE_settings{'view_blink'}; # return here if no blink
+  return if $selected eq 'mw';
+  return unless exists $descriptor{&path_to_id($selected)};
   return unless &HaveGeometry($descriptor{&path_to_id($selected)}->{'type'});
   my $sw=$widgets{$selected};
   my $saved=$sw->cget(-background);
@@ -860,6 +1374,9 @@ sub set_selected
   }
 }
 
+# Mark changes flag and perform respective actions:
+# - update visual changes indicator
+# - resolve conflicts (if any)
 sub changes
 {
   $changes=shift;
@@ -869,6 +1386,7 @@ sub changes
     # resolve conflicts:
     # -----------------
     # conflict No 1 - remove Label from Frame with grid sub-widgets
+    # (since geometry manager gets mad in such situation)
     #   for each frame widget
     #   get all children id's
     #   get those geometry
@@ -884,23 +1402,85 @@ sub changes
       if ( grep (/grid/,@children) )
       {
         my (%opt)=&split_opt($descriptor{$id}->{'opt'});
-	if ($opt{'-label'})
-	{
-	  delete $opt{'-label'};
-	  $descriptor{$id}->{'opt'} = join(', ',%opt);
-	}
+        if ($opt{'-label'})
+        {
+          delete $opt{'-label'};
+          $descriptor{$id}->{'opt'} = join(', ',%opt);
+        }
       }
     }
+    # conflict No 2 - for grid-based widgets calculate position 
+    # and move interlaced element downward
+    #  for each widget:
+    #  - get list of children
+    #  - if 1st child have 'grid' geometry
+    #    - prepare matrix of placement
+    #    - foreach child: 
+    #      - re-calculate (xmax,ymax) 
+    #      - try to store in matrix
+    #      - if this cell already "in use" - push it into "conflicts" list
+    #    - foreach element in "conflicts" list:
+    #      - place it into free space under ymax row
+    foreach my $elm(@tree)
+    {
+      my ($id) = ($elm=~/\.([^\.]+)$/);
+      my (@children)=grep(/\.$id\.([^\.]+)$/,@tree);
+      if($elm eq 'mw') {
+        @children = grep(/^mw.([^\.]+)$/,@tree);
+      }
+      next if scalar(@children) < 2; # need at least 2 for conflict!
+      map {s/.*\.//} @children;
+      next unless grep ($descriptor{$_}->{'geom'}=~/grid/,@children);
+      # here we've list of widgets with 'grid' geometry
+      # 1. For each element:
+      # 1.1. calculate (xmax,ymax) using current element (x,y)
+      # 1.2. check, does this cell free or not
+      # 1.3. if conflict - store it's id in '@conflicts' list
+      # 2. For each element in '@conflicts' list
+      # 2.1. correct element's (x,y) using 'safe' space after (xmax/ymax)
+      my ($x,$y,$xmax,$ymax);
+      my @conflicts;
+      my @matrix;
+
+      $xmax = $ymax = -1;
+      foreach (@children) {
+        ($x) = $descriptor{$_}->{'geom'} =~ /-column\D+(\d+)/;
+        $x = '0' unless $x;
+        $xmax = $x if $x > $xmax;
+        ($y) = $descriptor{$_}->{'geom'} =~ /-row\D+(\d+)/;
+        $y = '0' unless $y;
+        $ymax = $y if $y > $ymax;
+        if($matrix[$y][$x]) { push(@conflicts,$_); }
+        else                { $matrix[$y][$x]=$_;  }
+      }
+      $x = 0; $ymax++;
+      foreach (@conflicts) {
+        $descriptor{$_}->{'geom'} =~ s/(-column)\D+\d+/$1=>$x/; $x++;
+        $descriptor{$_}->{'geom'} =~ s/(-row)\D+\d+/$1=>$ymax/;
+        if($x > $xmax) {
+          $x = 0; $ymax++;
+        }
+      }
+      if(@conflicts) {
+        # inform user about fix:
+        &ShowDialog(-title=>"Geometry conflicts!",-bitmap=>'info',-buttons=>['Continue'],
+          -text=>join("\n",'Grid cell conflicts resolved for following widgets:',@conflicts));
+      }
+    }
+
     &view_repaint;
   }
 }
 
+# "Application close" callback
 sub abandon
 {
   return unless &check_changes;
   exit;
 }
 
+# Make sure that changes of current project are saved
+# Return result indicating success of save procedure
 sub check_changes
 {
   if($changes)
@@ -920,10 +1500,12 @@ sub check_changes
   return 1; # Ok
 }
 
+# Open "file save" dialog box (when needed) and perform save operation
+# return 0 on success and error code otherwise
 sub file_save
 {
   my ($type)=shift;
-  unless($type)
+  unless($type eq 'Save As')
   {
     return unless $changes;
   }
@@ -931,7 +1513,7 @@ sub file_save
   # open file save dialog box
   my $file = $lastfile;
   $file=~s#.*[/\\]([^/\\]+)$#$1#;
-  if(! -f $lastfile || $type)
+  if(! -f $lastfile || $type eq 'Save As')
   {
     $file='newfile.pl';
     if($os eq 'win')
@@ -963,52 +1545,8 @@ sub file_save
   }
   else
   {
-    my ($strict,$my)=('','');
-    ($strict,$my)=("use strict;\n",'my ') if $file_opt{'strict'};
-    if($file_opt{'fullcode'})
-    {
-      # get full widgets list:
-      my %Widgets;
-      foreach my $k(keys %descriptor)
-      {
-        my $t=$descriptor{$k}->{'type'};
-	next if $t =~ /^(command|checkbutton|radiobutton|separator|cascade)$/;
-	next unless $t;
-	$t='Adjuster' if $t eq 'packAdjust';
-	$t='NoteBook' if $t eq 'NoteBookFrame';
-        $Widgets{$t}=1;
-      }
-      my $used;
-      map ($used.="use Tk::$_;\n",sort keys %Widgets);
-      print DATA "#!$perl\n\n".
-      "# $file_opt{description}\n\n".
-      "${strict}use Tk;\n$used\n".
-      "$my\$mw=MainWindow->new(-title=>'$file_opt{title}');\n";
-    }
-    @user_auto_vars=();
-    foreach my $element(@tree)
-    {
-      my $d=$descriptor{&path_to_id($element)};
-      next unless $d;
-      my ($user_var)=($d->{'opt'}=~/variable[^\$]+\\\$(\w+)/);
-      push(@user_auto_vars,$user_var) 
-        if $user_var && ! grep($_ eq $user_var,@user_auto_vars);
-    }
-    print DATA "\nuse vars qw/\$".join(' $',@user_auto_vars)."/;\n\n" if @user_auto_vars;
-    print DATA join("\n",&code_print());
-    if($file_opt{'fullcode'})
-    {
-      print DATA "\nMainLoop;\n";
-    }
-
-    if(@user_subroutines)
-    {
-      print (DATA "\n",join("\n",@user_subroutines),"\n");
-    }
-    else
-    {
-      print DATA "\n#===vptk end===< DO NOT CODE ABOVE THIS LINE >===\n";
-    }
+    &PopulateProject($Project);
+    print DATA map ("$_\n",$Project->print);
     close DATA;
   }
   # reset changes flag
@@ -1016,9 +1554,10 @@ sub file_save
   return 0;
 }
 
+# "Open file" dialog box and load file if success
 sub file_open
 {
-  &file_new();
+  return unless &check_changes;
 
   $mw->Busy;
   # open file save dialog box
@@ -1039,10 +1578,12 @@ sub file_open
   $mw->Unbusy;
   # return 'Cancel' if file not selected
   return 'Cancel' unless($file);
+  &file_clean;
   &file_read($file);
 }
 
-sub file_read # read file and convert to internal data
+# read file and convert to internal data
+sub file_read 
 {
   my ($file)=(@_);
   $lastfile=$file;
@@ -1055,11 +1596,9 @@ sub file_read # read file and convert to internal data
     &ShowDialog(-title=>'Error:',-text=>"File $file read - $!\n",-buttons=>['Continue']);
     return 'Cancel';
   }
-  # else
-  &file_new();
   &struct_read(<DATA>);
-  &view_repaint;
   close DATA;
+  &view_repaint;
 }
 
 # Clipboard operations implementation
@@ -1111,6 +1650,7 @@ sub edit_copy
 sub edit_paste
 {
   return if $selected eq 'mw';
+  my $where = shift || 'before';
   my $id=&path_to_id($selected);
   my @clipboard=@main_clipboard;
   #@clipboard = split(/\n/,$mw->SelectionGet(-selection => 'CLIPBOARD'));
@@ -1122,6 +1662,7 @@ sub edit_paste
   }
   # check type conflict:
   my $parent=$descriptor{$id}->{'parent'};
+  $parent = $id if $where eq 'under';
   my $parent_type=$descriptor{$parent}->{'type'};
   $clipboard[0]=~s/^#VPTK_W\|//;
   my ($clp_parent,$clp_id,$clp_type,$clp_geom)=split(/\|/,shift(@clipboard));
@@ -1181,8 +1722,13 @@ sub edit_paste
   # Save undo information:
   &undo_save();
   # insert here:
-  my (@save_tree)=splice(@tree,&index_of($id));
+  # 1st, calculate insert position
+  my $insert_pos = &calc_insert_position($where);
+  # then, divide tree into two parts
+  my (@save_tree)=splice(@tree,$insert_pos);
+  # and put the new contents after 1st part
   &struct_read(@clipboard);
+  # and finally - put 2nd part
   push (@tree,@save_tree);
   if ($reply eq 'Propagate')
   {
@@ -1195,20 +1741,54 @@ sub edit_paste
   # repaint tree:
   $tf->delete('all');
   $descriptor{'mw'}->{'type'}='Frame';
-  grep ( $tf->add($_,-text=>&path_to_id($_),-data=>$_,
-    -image=>$pic{lc($descriptor{&path_to_id($_)}->{'type'})}), @tree );
+  map ( $tf->add($_,-text=>&path_to_id($_),-data=>$_,
+    -image=>WidgetIcon($descriptor{&path_to_id($_)}->{'type'})), @tree );
   delete $descriptor{'mw'};
   &changes(1);
   &set_selected($selected);
 }
 
+# check are any of erased widgets listed in 'bind array'
+# if any - warn and update array
+sub check_bind_before_delete
+{
+  my @widgets_todelete = grep(/$selected/,@tree);
+  map(s/.*\.//,@widgets_todelete);
+  my @bind_todelete;
+  foreach my $w (@widgets_todelete)
+  {
+    push(@bind_todelete,grep(/^$w.>bind\(/,@project_bindings));
+  }
+  if(@bind_todelete)
+  {
+     my $reply = ShowDialog(-title=>'Error',
+       -text=>"There are some bindings connected to selected widget(s)",
+       -buttons=>['Ok','Dismiss']);
+     if($reply eq 'Ok')
+     {
+       foreach my $b(@bind_todelete)
+       {
+         @project_bindings = grep($_ ne $b,@project_bindings);
+       }
+     }
+     else
+     {
+        return 0;
+     }
+  }
+  return 1;
+}
+
 sub edit_delete
 {
+  return unless &check_bind_before_delete();
   if ($selected eq 'mw') # say something to user here:
   {
-    &ShowDialog(-title=>'Error',-text=>'Use File->New in order to clear all');
+#    &ShowDialog(-title=>'Error',-text=>'Use File->New in order to clear all');
+    &file_new;
     return;
   }
+
   # save current state for undo
   &undo_save();
   # 1. remove internal structures (including sub-widgets)
@@ -1232,8 +1812,8 @@ sub insert
 
   return if($selected eq 'mw' && $where ne 'subwidget');
   # 1. ask for widget type
-  my $db=$mw->DialogBox(-title => "Create $where $selected",-buttons=>['Ok','Cancel']);
-  my @LegalW=@LegalWidgets;
+  my $db=$mw->DialogBox(-title => "Create $where $selected",-buttons=>['Ok','Cancel','New class ...']);
+  my @LegalW=@OrdinaryWidgets;
   # determine where insertion point is
   # if it's menu/menubutton/cascade - change LegalW to respective array
   # Menubutton -> Menu
@@ -1263,18 +1843,28 @@ sub insert
   foreach my $lw (@LegalW)
   {
     $f->Radiobutton(-variable=>\$type,-value=>$lw,-text=>$lw)->
-    grid(-row=>$i,-column=>0,-sticky=>'w',-padx=>18);
-    $f->Label(-image=>$pic{lc($lw)})->
-    grid(-row=>$i,-column=>1,-sticky=>'w',-padx=>18);
+      grid(-row=>$i,-column=>0,-sticky=>'w',-padx=>18);
+    $f->Label(-image=>WidgetIcon($lw))->
+      grid(-row=>$i,-column=>1,-sticky=>'w',-padx=>18);
     $i++;
   }
+  my $bindUpSaved = $db->bind('all', '<Key-Up>');
+  my $bindDnSaved = $db->bind('all', '<Key-Down>');
+  $db->bind('all', '<Key-Up>'   => 'focusPrev');
+  $db->bind('all', '<Key-Down>' => 'focusNext');
   $db->resizable(1,0);
   &Coloring($db);
   $reply=$db->Show();
+  # un-bind here:
+  $db->bind('all', '<Key-Up>'   => $bindUpSaved);
+  $db->bind('all', '<Key-Down>' => $bindDnSaved);
+
+  system("$path/wizard_vptk_w.pl") if $reply eq 'New class ...';
   return if $reply ne 'Ok';
   &do_insert($where,$type);
 }
 
+# return position of widget in hierarchy tree (according to ID)
 sub index_of
 {
   my $id=shift;
@@ -1284,19 +1874,28 @@ sub index_of
   return $i;
 }
 
+sub calc_insert_position
+{
+  my ($where) = @_;
+
+  my $i=&index_of($selected);
+  my $j=$i+1;
+  $j=$i if $where eq 'before';
+  if($where eq 'subwidget' || $where eq 'under') # insert after last sub-entry
+  {
+    while($tree[$j] =~ /(^|\.)$selected(\.|$)/) { $j++ }
+  }
+  return $j;
+}
+
+# insert widget into current project
 sub do_insert
 {
   my ($where,$type)=@_;
   # save current state for undo
   &undo_save();
   # 2. Find selected element index in @tree
-  my $i=&index_of($selected);
-  my $j=$i+1;
-  $j=$i if $where eq 'before';
-  if($where eq 'subwidget') # insert after last sub-entry
-  {
-    while($tree[$j] =~ /(^|\.)$selected(\.|$)/) { $j++ }
-  }
+  my $j = &calc_insert_position($where);
   my $id=&generate_unique_id($type);
   # Ask user for human-readable name here:
   return unless ($id=&ask_new_id($id,$type));
@@ -1309,22 +1908,17 @@ sub do_insert
   my @w_opt=(); 
   
   # default values:
-  foreach my $k(keys %{$w_attr{$type}})
+  my $widget_attr = EditorProperties($type);
+  foreach my $k(keys %$widget_attr)
   {
     # text fields
     next if $k =~ 
-      /^-(accelerator|show|command|createcmd|raisecmd|textvariable|variable|onvalue|offvalue)$/;
-    push(@w_opt,"$k, $id") if($w_attr{$type}->{$k}=~/text/);
+      /^-(bitmap|accelerator|show|command|createcmd|raisecmd|textvariable|variable|onvalue|offvalue)$/;
+    push(@w_opt,"$k, $id") if($widget_attr->{$k}=~/text/);
   }
-  # relief for 'Label'
-  push(@w_opt,'-relief, flat') 
-    if $type =~ /^(Label|Menubutton|Checkbutton|Radiobutton|Scale|Message)$/;
-  push(@w_opt,'-relief, sunken') 
-    if $type =~ /^(BrowseEntry|Entry|Text|Listbox|LabEntry)$/;
-  push(@w_opt,'-relief, ridge') 
-    if $type =~ /^(LabFrame)$/;
-  push(@w_opt,'-indicatoron, 1')
-    if $type =~ /^(Radiobutton|Checkbutton)$/;
+  # Set default attributes for known widgets:
+  my $default_params = DefaultParams($type);
+  push(@w_opt, @$default_params);
 
   my $geom='';
   if (&HaveGeometry($type))
@@ -1341,30 +1935,34 @@ sub do_insert
   splice(@tree,$j,0,"${insert_path}.$id");
 
   # 4. Update display tree
+  my $image =  WidgetIcon($type);
   if($where eq 'subwidget')
   {
     $tf->add("${insert_path}.$id",-text=>$id,
-      -data=>"${insert_path}.$id",-image=>$pic{lc($type)});
+      -data=>"${insert_path}.$id",-image=>$image);
   }
   else
   {
     $tf->add("${insert_path}.$id",-text=>$id,-data=>"${insert_path}.$id",
-      -image=>$pic{lc($type)},"-$where"=>$selected)
+      -image=>$image,"-$where"=>$selected)
   }
   
   # For menu-related elements automatically create 'Menu':
   if($type =~ /^(Menubutton|cascade)$/)
   {
     $parent=$id;
-    $id=&generate_unique_id('Menu');
-    $descriptor{$id}=&descriptor_create($id,$parent,'Menu','','');
+    $type='Menu';
+    $id=&generate_unique_id($type);
+    my $default_params = DefaultParams($type);
+    $descriptor{$id}=&descriptor_create($id,$parent,$type,join(', ',@$default_params),'');
     splice(@tree,$j+1,0,"${insert_path}.$parent.$id");
     $tf->add("${insert_path}.$parent.$id",-text=>$id,
-      -data=>"${insert_path}.$parent.$id",-image=>$pic{lc('Menu')});
+      -data=>"${insert_path}.$parent.$id",-image=>WidgetIcon($type));
   }
   &changes(1);
 }
 
+# rename widget
 sub rename
 {
   my $old_id=&path_to_id($selected);
@@ -1380,8 +1978,9 @@ sub rename
   map (s/\$($old_id)(\W)/\$$id$2/g,@program);
   &struct_new();
   &struct_read(@program);
-  # &view_repaint;
+  &view_repaint;
   &changes(1);
+  $selected=$id;
 }
 
 sub ask_new_id
@@ -1392,6 +1991,9 @@ sub ask_new_id
     my $db=$mw->DialogBox(-title=>"Name for $type widget",-buttons=>['Proceed','Cancel']);
     $db->LabEntry(-textvariable=>\$id,-labelPack=>[-side=>'left',-anchor=>'w'],
       -label=>'Type UNIQUE and CORRECT name ')->pack(-pady=>20,-padx=>30);
+    $db->Label(-text=>"The field 'widget name' is\n".
+      "a name of variable that associated\n".
+      "with this widget in your project.",-justify=>'left')->pack(-pady=>10);
     $db->resizable(1,0);
     &Coloring($db);
     return 0 if($db->Show() eq 'Cancel');
@@ -1413,18 +2015,78 @@ sub generate_unique_id
   return $id;
 }
 
+sub PopulateBalloonDialog
+{
+  my ($wBlDialog) = @_;
+  my $tPromptMessage;
+  my @list = grep($_ ne 'mw',@tree);
+  # replace with exact "can have balloon" flag - TBD
+  @list = grep( &HaveGeometry($descriptor{&path_to_id($_)}->{'type'}),@list );
+  my $selected_widget_for_balloon = $selected;
+  $selected_widget_for_balloon = $list[0] if $selected eq 'mw'; 
+  my $id=$selected_widget_for_balloon; $id=~s/.*\.//;
+  $selected_widget_for_balloon = $list[0] if !$id ||
+    ($id && !&HaveGeometry($descriptor{$id}->{'type'}));
+  $id=$selected_widget_for_balloon; $id=~s/.*\.//;
+  if ( $id eq 'mw' || !$selected_widget_for_balloon || 
+  # replace with exact "can have balloon" flag - TBD
+      !&HaveGeometry($descriptor{$id}->{'type'}) )
+  {
+    $wBlDialog->Label(-text=>"No balloons to edit")->pack(-pady=>10);
+    return;
+  }
+  my $d=$descriptor{$id};
+#  return unless &HaveGeometry($d->{'type'}); 
+  my $new_balloon=$d->{'wballoon'};
+  my $lf;
+  $tPromptMessage="Balloon for widget $id:";
+  $lf=$wBlDialog->Scrolled('Listbox',-scrollbars=>'osoe')->pack(-side=>'left',-fill=>'both',-expand=>1);
+  $lf->insert('end'=>@list);
+  $lf->bind('<<ListboxSelect>>'=>
+      sub
+      {
+        $selected_widget_for_balloon=$lf->get($lf->curselection);
+        $id = $selected_widget_for_balloon; $id=~s/.*\.//;
+        $tPromptMessage="Balloon for widget $id:";
+        $d=$descriptor{$id};
+        $new_balloon=$d->{'wballoon'};
+      });
+# Save undo information:
+  &undo_save();
+  my $rf=$wBlDialog->Frame()->pack(-side=>'left',-padx=>5,-pady=>5,-anchor=>'nw');
+  $rf->Label(-textvariable=>\$tPromptMessage,-justify=>'left')->pack(-pady=>10);
+  my $wBlnEntry=$rf->Entry(-textvariable=>\$new_balloon)->pack(-pady=>5,-fill=>'x');
+  $rf->bind('<Leave>'=>sub{$d->{'wballoon'} = $new_balloon;});
+  $rf->Button(-text=>'Read more about Balloons ...',-command=>[\&tkpod,'Balloon'])->pack(-pady=>7);
+  my $wBalloonGeneralFrm = $rf->Frame()->pack(-fill=>'x',-pady=>7);
+  $wBalloonGeneralFrm->Label(-text=>'Delay: ')->pack(-side=>'left');
+  &NumEntry($wBalloonGeneralFrm,-textvariable=>\$balloon_delay,
+      -width=>4,-minvalue=>0)->pack(-side=>'left');
+  &ColorPicker($wBalloonGeneralFrm,'Balloon background',\$balloon_bg_color);
+  return $wBlnEntry;
+}
+
+# Edit selected widget's balloon
+sub edit_balloon { &file_properties('balloon'); }
+
+sub edit_bindings { &file_properties('bind'); }
+
+# open dialog for widget's properties editing
 sub edit_properties
 {
   return unless $selected;
 re_enter:
   my $id=$selected; $id=~s/.*\.//;
+  if ($id eq 'mw') {
+    &file_properties();
+    return;
+  }
   return unless defined $descriptor{$id};
-  return if $id eq 'mw';
-  return if $descriptor{$id}->{'type'} eq 'separator';
-  my $pr=$w_attr{$descriptor{$id}->{'type'}};
-  # return unless keys %$pr;
-  
   my $d=$descriptor{$id};
+  
+  return if $d->{'type'} eq 'separator';
+  my $pr = EditorProperties($d->{'type'});
+  return unless keys %$pr;
   
   my @frm_pak=qw/-side left -fill both -expand 1 -padx 5 -pady 5/;
   my @pl=qw/-side left -padx 5 -pady 5/;
@@ -1433,10 +2095,11 @@ re_enter:
   my $fbl=$db->LabFrame(-labelside=>'acrosstop',-label=>'Help')
     ->pack(-side=>'bottom',-anchor=>'s',-pady=>5);
   my $bl=$fbl->Label(-height=>6,-width=>80,-justify=>'left')->pack();
-  
+  $fbl->packForget unless $IDE_settings{'hint_msg'};
+
   my %val;
   my (%lpack)=();
-  
+  my @user_vars_for_edit = map("\\\$$_",@user_auto_vars);
   if (keys %$pr)
   {
     my $db_lf=$db->LabFrame(-labelside=>'acrosstop',-label=>"Widget ".$d->{'type'}." options:")
@@ -1449,7 +2112,7 @@ re_enter:
     {
       my $f = $db_lft->Frame(); $db_lft->Manage( $f );
       $f->Label(-text=>$k)->pack(-padx=>7,-pady=>10,-side=>'left');
-      &cnf_dlg_ballon($bl,$f,$k);
+      &cnf_dlg_balloon($bl,$f,$k);
       if($pr->{$k} eq 'color')
       {
         &ColorPicker($f,'Color',\$val{$k},1);
@@ -1468,12 +2131,17 @@ re_enter:
 	&NumEntry($f,-textvariable=>\$val{$k},
           -width=>4,-minvalue=>0)->pack(@right_pack);
       }
+      elsif($pr->{$k} eq 'variable')
+      {
+        # add list of choises
+        $f->BrowseEntry(-variable=>\$val{$k},-choices=>\@user_vars_for_edit)->pack(@right_pack);
+      }
       elsif($pr->{$k} eq 'text')
       {
         if($d->{'type'} !~ /^(Frame|command|radiobutton|checkbutton|cascade)$/)
         {
           $val{$k}=$id if ! $val{$k} && $k !~
-            /^-(accelerator|show|command|textvariable|variable|onvalue|offvalue)$/;
+            /^-(accelerator|show|command|textvariable|bitmap|variable|onvalue|offvalue)$/;
         }
         $f->Entry(-textvariable=>\$val{$k})->pack(@right_pack);
       }
@@ -1514,6 +2182,22 @@ re_enter:
       {
         &SideMenu($f,\$val{$k},'')->pack(@right_pack);
       }
+      elsif($pr->{$k} =~ /^bitmap/)
+      {
+        $val{$k}='' unless $val{$k};
+        my $menu='|gray12|gray25|gray50|gray75|hourglass|info|error|warning|questhead|question|Tk';
+        # show bitmaps in menubutton
+        my $mnb = $f->Menubutton(-underline=>0,-relief=>'raised',-bitmap=>$val{$k},
+          -textvariable=>\$val{$k}, -direction =>'below')->pack(@right_pack,-ipadx=>5);
+        my $mnu = $mnb->menu(qw/-tearoff 0/); $mnb->configure(-menu => $mnu);
+        my $i=0;
+        foreach my $r(split(/\|/,$menu))
+        {
+          $mnu->command(-label=>$r,-bitmap=>$r,-columnbreak=>(($i) % 5)?0:1,
+            -command=>sub{$val{$k}=$r;$mnb->configure(-bitmap=>$r)});
+          $i++;
+        }
+      }
       elsif($pr->{$k} =~ /^menu\(/)
       {
         my $menu=$pr->{$k};
@@ -1540,6 +2224,37 @@ re_enter:
         $f->Optionmenu(-options=>[qw/left top right bottom/],
           -textvariable=>\$lpack{'-side'})->pack(@right_pack);
       }
+      elsif($pr->{$k} eq 'scrolled')
+      {
+        my ($scl_vert,$scl_hor);
+        ($scl_vert) = ($val{$k}=~/(o?[ns])/); 
+        ($scl_hor)  = ($val{$k}=~/(o?[we])/); $val{'-scrolled'}=$val{$k}ne'';
+        $f->Optionmenu(-options=>['',qw(w e ow oe)],-textvariable=>\$scl_hor,
+           -command=>sub{$val{$k} = $scl_vert . $scl_hor; $val{'-scrolled'}=$val{$k}ne'';})
+            ->pack(@right_pack);
+        $f->Optionmenu(-options=>['',qw(s n os on)],-textvariable=>\$scl_vert,
+           -command=>sub{$val{$k} = $scl_vert . $scl_hor; $val{'-scrolled'}=$val{$k}ne'';})
+            ->pack(@right_pack);
+        $f->Checkbutton(-text => 'enabled',
+            -relief => 'solid',-variable=>\$val{'-scrolled'},-borderwidth=>0,
+            -command => sub{ 
+                if($val{'-scrolled'}){$scl_vert='s';$scl_hor='e'}
+                else        {$scl_vert=$scl_hor=''} 
+                $val{$k} = $scl_vert . $scl_hor;
+              }
+            )->pack(@right_pack);
+      }
+      elsif($pr->{$k} eq 'sticky') 
+      {
+        my %st;
+        foreach my $s (qw/n s e w/)
+        {
+          $st{$s}=grep(/$s/,$val{$k});
+          $f->Checkbutton(-text=>$s,-variable=>\$st{$s},
+              -command => sub{$val{$k}=~s/$s//g;$val{$k}.=$s if $st{$s}})
+            ->pack(@right_pack);
+        }
+      }
     }
     foreach (0 .. 9-scalar(keys %$pr))
     {
@@ -1565,20 +2280,20 @@ re_enter:
 
     # pack options:
     {
-      &cnf_dlg_ballon($bl,$g_pack->Label(-text=>'-side',-justify=>'left')->
+      &cnf_dlg_balloon($bl,$g_pack->Label(-text=>'-side',-justify=>'left')->
         grid(-row=>0,-column=>0,-sticky=>'w',-padx=>8),'-side');
       &SideMenu($g_pack,\$g_val{'-side'},$bl)->grid(-row=>0,-column=>1,-pady=>4);
     }
     {
-      &cnf_dlg_ballon($bl,$g_pack->Label(-text=>'-anchor',-justify=>'left')->
+      &cnf_dlg_balloon($bl,$g_pack->Label(-text=>'-anchor',-justify=>'left')->
         grid(-row=>1,-column=>0,-sticky=>'w',-padx=>8),'-anchor');
       &AnchorMenu($g_pack,\$g_val{'-anchor'},$bl)->grid(-row=>1,-column=>1,-pady=>4);
     }
     {
-      &cnf_dlg_ballon($bl,$g_pack->Label(-text=>'-fill',-justify=>'left')->
+      &cnf_dlg_balloon($bl,$g_pack->Label(-text=>'-fill',-justify=>'left')->
         grid(-row=>2,-column=>0,-sticky=>'w',-padx=>8),'-fill');
       my $mnb = $g_pack->Menubutton(-direction=>'below')->grid(-row=>2,-column=>1,-pady=>4);
-      &cnf_dlg_ballon($bl,$mnb,'-fill');
+      &cnf_dlg_balloon($bl,$mnb,'-fill');
       my $mnu = $mnb->menu(qw/-tearoff 0/); $mnb->configure(-menu => $mnu);
       foreach my $r('','x','y','both')
       {
@@ -1588,9 +2303,9 @@ re_enter:
       }
     }
     {
-      &cnf_dlg_ballon($bl,$g_pack->Label(-text=>'-expand',-justify=>'left')->
+      &cnf_dlg_balloon($bl,$g_pack->Label(-text=>'-expand',-justify=>'left')->
         grid(-row=>3,-column=>0,-sticky=>'w',-padx=>8),'-expand');
-      &cnf_dlg_ballon($bl,$g_pack->
+      &cnf_dlg_balloon($bl,$g_pack->
         Button(-textvariable=>\$g_val{'-expand'},-relief=>'flat',-command=>
 	 sub{$g_val{'-expand'}=1-$g_val{'-expand'}})->grid(-row=>3,-column=>1,-pady=>4),'-expand');
 	
@@ -1599,20 +2314,20 @@ re_enter:
     foreach my $k(qw/-ipadx -ipady -padx -pady/)
     {
       $i++;
-      &cnf_dlg_ballon($bl,$g_pack->Label(-text=>$k,-justify=>'left')->
+      &cnf_dlg_balloon($bl,$g_pack->Label(-text=>$k,-justify=>'left')->
         grid(-row=>3+$i,-column=>0,-sticky=>'w',-padx=>8),$k);
       my $f=$g_pack->Frame()->grid(-row=>3+$i,-column=>1,-pady=>4);
-      &cnf_dlg_ballon($bl,$f,$k);
+      &cnf_dlg_balloon($bl,$f,$k);
       &NumEntry($f,-textvariable=>\$g_val{$k},-width=>4,
         -minvalue=>0)->pack(-side=>'right');
     }
   
     # geometry: grid
     {
-      &cnf_dlg_ballon($bl,$g_grid->Label(-text=>'-sticky',-justify=>'left')->
+      &cnf_dlg_balloon($bl,$g_grid->Label(-text=>'-sticky',-justify=>'left')->
         grid(-row=>0,-column=>0,-sticky=>'w',-padx=>8),'-sticky');
       my $f=$g_grid->Frame()->grid(-row=>0,-column=>1,-pady=>4);
-      &cnf_dlg_ballon($bl,$f,'-sticky');
+      &cnf_dlg_balloon($bl,$f,'-sticky');
       my %st;
       foreach my $s (qw/n s e w/)
       {
@@ -1625,10 +2340,10 @@ re_enter:
     my $i=1;
     foreach my $k(qw/-column -row -columnspan -rowspan -ipadx -ipady -padx -pady/)
     {
-      &cnf_dlg_ballon($bl,$g_grid->Label(-text=>$k,-justify=>'left')->
+      &cnf_dlg_balloon($bl,$g_grid->Label(-text=>$k,-justify=>'left')->
         grid(-row=>$i,-column=>0,-sticky=>'w',-padx=>8),$k);
       my $f=$g_grid->Frame()->grid(-row=>$i,-column=>1,-pady=>4);
-      &cnf_dlg_ballon($bl,$f,$k);
+      &cnf_dlg_balloon($bl,$f,$k);
       &NumEntry($f,-textvariable=>\$g_val{$k},-width=>4,
         -minvalue=>($k=~/(-column|-row)$/)?0:1)->pack(-side=>'right');
       $i++;
@@ -1638,10 +2353,10 @@ re_enter:
     my $i=0;
     foreach my $k(qw/-height -width -x -y -relheight -relwidth -relx -rely/)
     {
-      &cnf_dlg_ballon($bl,$g_place->Label(-text=>$k,-justify=>'left')->
+      &cnf_dlg_balloon($bl,$g_place->Label(-text=>$k,-justify=>'left')->
         grid(-row=>$i,-column=>0,-sticky=>'w',-padx=>8),$k);
       my $f=$g_place->Frame()->grid(-row=>$i,-column=>1,-pady=>4);
-      &cnf_dlg_ballon($bl,$f,$k);
+      &cnf_dlg_balloon($bl,$f,$k);
       &NumEntry($f,-textvariable=>\$g_val{$k},-width=>4,
         -minvalue=>0)->pack(-side=>'right');
       $i++;
@@ -1650,10 +2365,10 @@ re_enter:
     $n->raise($geom_type);
 
   }
-  # bind baloon message + help on click
+  # bind balloon message + help on click
   $bl->bind('<Enter>',
     sub{$bl->configure(-text=>"Click here to get help about current widget\n".
-      "by TkPOD utility.\n\n".
+      "by perldoc utility.\n\n".
       ($n?"Right-click here for current geometry manager help":''))});
   $bl->bind('<Leave>',
     sub{$bl->configure(-text=>'')});
@@ -1709,6 +2424,8 @@ re_enter:
   {
     foreach my $k( keys %val)
     {
+      delete $val{$k}
+        if $pr->{$k} eq 'scrolled' && !$val{'-scrolled'};
       $val{$k} =~ tr/,/./ unless $k eq '-labelPack';
       if($k =~/^-(showvalue|tearoff|indicatoron|underline)$/)
       {
@@ -1723,6 +2440,13 @@ re_enter:
       {
         &PushCallback($val{$k});
       }
+      if($pr->{$k}=~/variable/)
+      {
+        # store user-defined variable in array
+        my ($user_var)=($val{$k}=~/\\\$(\w+)/);
+        push(@user_auto_vars,$user_var)
+          if $user_var && ! grep($_ eq $user_var,@user_auto_vars);
+      }
     }
     $d->{'opt'}=join(', ',%val);
   }
@@ -1732,7 +2456,7 @@ re_enter:
     {
       if($k =~/^(-row|-column)$/)
       {
-        delete $g_val{$k} if $g_val{$k}=~/^\s*$/;
+        $g_val{$k}=0 if $g_val{$k}=~/^\s*$/;
       }
       else
       {
@@ -1755,18 +2479,26 @@ re_enter:
   &changes(1);
 }
 
+# store callback name(s) in global array "@callbacks"
+# (if not already exist)
 sub PushCallback
 {
   my (@arg)=@_;
+  my $count = 0;
   foreach my $arg (@arg)
   {
     next unless $arg;
     $arg="\\\&$arg" if $arg=~/^\w/ && $arg!~/^(sub[\s\{]|\[)/;
-    push(@callbacks,$arg)
-      unless grep($arg eq $_, @callbacks);
+    unless (grep($arg eq $_, @callbacks))
+    {
+      push(@callbacks,$arg);
+      $count++;
+    }
   }
+  return $count;
 }
 
+# display POD help window (paltform-dependent)
 sub tkpod
 {
   my $id=shift;
@@ -1774,27 +2506,24 @@ sub tkpod
   $id=$selected unless $id; # default if no argument
   $id=~s/.*\.//; # clean up when 'selected' used
   my $widget='';
-  $widget=$descriptor{$id}->{'type'} # for real widgets!
-    if $descriptor{$id}->{'type'} =~ /^[A-Z]/;
-  $widget='Adjuster' if $descriptor{$id}->{'type'} eq 'packAdjust';
-  $widget='NoteBook' if $descriptor{$id}->{'type'} eq 'NoteBookFrame';
+  my $hid = TkClassName($descriptor{$id}->{'type'});
+  $widget = $hid if $hid;
   $widget=$id if $id=~
-    /^(grid|place|pack|overview|options|option|tkvars|grab|bind|bindtags|callbacks|event)$/;
-  $widget='MainWindow' if $id eq 'mw';
-  $widget='Menu' unless $widget;
+    /^(grid|place|pack|overview|options|option|tkvars|grab|bind|bindtags|callbacks|event|Balloon)$/;
+  $widget = 'MainWindow' if $id eq 'mw';
+  $widget = "Tk::$widget" unless $widget =~ /^Tk::/;
   $mw->Busy;
-  my $pod_util = ($os eq 'win')?
-    'start cmd /c perldoc' :
-    'xterm -e perldoc';
-  system("$pod_util Tk::".$widget.' &');
+  my $pod_util = $IDE_settings{'perldoc'};
+  system("$pod_util $widget &");
   $mw->Unbusy;
 }
 
+# Create visual object for "side" property editing
 sub SideMenu
 {
   my ($where,$pvar,$balloon)=(@_);
   my $mnb = $where->Menubutton(-direction=>'below',-cursor=>'left_ptr');
-  &cnf_dlg_ballon($balloon,$mnb,'-side')
+  &cnf_dlg_balloon($balloon,$mnb,'-side')
    if $balloon;
   my $mnu = $mnb->menu(qw/-tearoff 0/); $mnb->configure(-menu => $mnu);
   foreach my $r('','left','bottom','top','right')
@@ -1809,11 +2538,12 @@ sub SideMenu
   # end SideMenu
 }
 
+# Create visual object for "anchor" property editing
 sub AnchorMenu
 {
   my ($where,$pvar,$balloon)=(@_);
   my $mnb = $where->Menubutton(-direction=>'below',-cursor=>'left_ptr');
-  &cnf_dlg_ballon($balloon,$mnb,'-anchor') 
+  &cnf_dlg_balloon($balloon,$mnb,'-anchor') 
    if $balloon;
   my $mnu = $mnb->menu(qw/-tearoff 0/); $mnb->configure(-menu => $mnu);
   foreach my $r('','nw','w','sw','n','center','s','ne','e','se')
@@ -1854,11 +2584,11 @@ sub tree_get_brothers
   return grep(!/^$id$/,&tree_get_sons($parent));
 }
 
-sub cnf_dlg_ballon
+sub cnf_dlg_balloon
 {
   my ($bln,$w,$key)=(@_);
-  return unless defined $cnf_dlg_ballon{$key};
-  $w->bind("<Enter>",sub{$bln->configure(-text=>$cnf_dlg_ballon{$key})});
+  return unless defined $cnf_dlg_balloon{$key};
+  $w->bind("<Enter>",sub{$bln->configure(-text=>$cnf_dlg_balloon{$key})});
   $w->bind("<Leave>",sub{$bln->configure(-text=>'')});
 }
 
@@ -1928,7 +2658,7 @@ sub code_line_print
   return '' if $id eq 'mw';
   my $d=$descriptor{$id};
   my $my='';
-  $my = 'my ' if ($file_opt{'strict'});
+  $my = 'my ' if $pOpt->data->{'strict'};
   my $postconfig='';
   $postconfig=' $'.$d->{'parent'}."->configure(-menu=>\$$id);"
     if $d->{'type'} eq 'Menu';
@@ -1939,15 +2669,25 @@ sub code_line_print
     if $descriptor{$parent}->{'type'} eq 'cascade';
   my $type=$d->{'type'};
   my $opt=&quotate($d->{'opt'});
+  if($opt =~ /-scrolled/) {
+    $opt =~ s/^/'$type', /;
+    $opt =~ s/-scrolled\s?=>\s?1//;
+    $opt =~ s/,\s*,/,/;
+    $opt =~ s/,\s*$//;
+    $type = 'Scrolled';
+  }
   if($descriptor{$parent}->{'type'} eq 'NoteBook')
   {
     $type='add';
     $opt="'$id', $opt";
   }
+  my $wballoon = ($d->{'wballoon'}) ? 
+    " \$vptk_balloon->attach(\$$id,-balloonmsg=>\"$d->{'wballoon'}\");"
+    :'';
   $code =
     $my.'$'.$d->{'id'}.' = $'.$parent.' -> '.
     $type.' ( '.$opt.' )'.
-    $geom.';'.$postconfig;
+    $geom.';'.$postconfig . $wballoon;
   return $code;
 }
 
@@ -1960,7 +2700,7 @@ sub quotate
   foreach my $k(keys %opt)
   {
     $opt{$k} = "'$opt{$k}'" 
-      unless $opt{$k} =~ /^(\d|\[)/ || $k =~ /(variable|command|cmd)$/;
+      unless $opt{$k} =~ /^(\d|\[)/ || $k =~ /(variable|command|cmd|image)$/;
     if($opt{$k} =~ /^\[/ && $opt{$k} !~ /'/)
     {
       $opt{$k} =~ s/[\[\]]//g;
@@ -1986,110 +2726,182 @@ sub quotate
 # --------------------
 # $tf - list of objects in tree form
 #
-sub struct_read # read external data structure to internal
+# read string-represented data structure into internal data
+sub struct_read 
 {
   my (@lines)=@_;
   my @ERRORS;
 
   my $count=0; # just for diagnostics - input line number
   my $user_subroutines=0;
+  my $user_code_before_main=0;
+  my $user_code_before_tk=0;
+  my $user_code_before_widgets=0;
+  my $p_user_subroutines = $Project->get('Code')->get('user code');
   chomp @lines;
-  # for each widget description line:
-  # 1. get Id, Parent, Type, parameters, geometry
-  # 2. check for Parent existance
-  # 3. add line to tree descriptor
-  # 4. add element to widget descriptor
-  # 5. add element to id->descriptor hash
+# for each widget description line:
+# 1. get Id, Parent, Type, parameters, geometry
+# 2. check for Parent existance
+# 3. add line to tree descriptor
+# 4. add element to widget descriptor
+# 5. add element to id->descriptor hash
   foreach my $line( @lines )
   {
     $count++;
     if($line=~/^#===vptk end===/ ||
-      $user_subroutines)
+        $user_subroutines)
     {
-      push(@user_subroutines,$line);
+      push(@$p_user_subroutines,$line);
       &PushCallback($line=~/sub\s+([^\s\{]+)/);
       $user_subroutines=1;
+      next;
+    }
+    if($line=~/^use Tk;/)
+    {
+      $user_code_before_tk=0;
+      next;
+    }
+    if($line=~/^#===vptk user code before tk===/ ||
+        $user_code_before_tk)
+    {
+      push(@{$Project->get('Code')->get('code before tk')},$line) if $user_code_before_tk;
+      $user_code_before_tk=1;
+      next;
+    }
+    if($line=~/^MainLoop;/)
+    {
+      $user_code_before_main=0;
+      next;
+    }
+    if($line=~/^#===vptk user code before main===/ ||
+        $user_code_before_main)
+    {
+      push(@{$Project->get('Code')->get('code before main')},$line) if $user_code_before_main;
+      $user_code_before_main=1;
+      next;
+    }
+    if($line=~/mw->Balloon\(/)
+    {
+      my ($args) = $line =~ /\((.*)\)/;
+      my (%settings) = split(/,|=>/,$args);
+      $settings{'-background'} =~ s/"//g;
+      $Project->get('Options')->set('balloon_color',$settings{'-background'});
+      $Project->get('Options')->set('balloon_delay',$settings{'-initwait'});
+      next;
+    }
+    if($line=~/->bind\(/)
+    {
+      my ($bindSelCallb) = ($line=~/'[^']+',(.*)\);$/);
+      $line =~ s/^\$//;
+      push(@project_bindings,$line);
+      &PushCallback($bindSelCallb);
+      next;
+    }
+    if($line=~/-> (pack|grid|place)\(/)
+    {
+      $user_code_before_widgets=0;
+    }
+    if($line=~/^(#===vptk widgets definition===|use Tk::Balloon)/)
+    {
+      $user_code_before_widgets=0;
       next;
     }
     if($line=~/^\s*#[^!]/)
     {
       $line =~ s/^\s*#\s*//;
-      $file_opt{'description'} .= $line;
-      $file_opt{'fullcode'}=1;
+      $pOpt->data->{'description'} .= $line;
+      $pOpt->data->{'fullcode'}=1;
+    }
+    if($user_code_before_widgets)
+    {
+      push(@{$Project->get('Code')->get('code before widgets')},$line) if $user_code_before_widgets;
+      next;
     }
     if($line=~/^\s*my\s+/)
     {
       $line=~s/^\s*my\s+//;
-      $file_opt{'strict'}=1;
+      $pOpt->data->{'strict'}=1;
     }
-    if($line=~/-title\s*=>\s*'/)
+    if($line=~/new.*-title\s*=>\s*'/)
     {
-      ($file_opt{'title'}) = $line=~/-title\s*=>\s*'([^']*)'/;
-      $file_opt{'fullcode'}=1;
+      ($pOpt->data->{'title'}) = $line=~/-title\s*=>\s*'([^']*)'/;
+      $pOpt->data->{'fullcode'}=1;
+      $user_code_before_widgets=1;
       next;
     }
     next if $line=~/^\s*[^\$]/;
-    next if $line=~/^\s*\$mw\s*=/;
+    next if $line=~/^\s*\$(mw|vptk_balloon)\s*=/;
     $line =~ s/'//g; # ignore self-generated quotes
-    if($line =~ /^\s*\$/)
-    {
-      my ($id,$parent,$type,$opt,$geom);
-      ($id,$parent,$type,$opt,$geom) =
-        $line =~ /^\s*\$(\S+)\s+=\s+\$(\S+)\s+->\s+([^(]+)\(([^)]+)\)\s+->\s+([^;]+);/;
-      unless($id)
+      if($line =~ /^\s*\$/)
       {
-        my $virtual_parent;
-        ($id,$virtual_parent,$type,$opt,$parent) =
-          $line =~ /^\s*\$(\S+)\s+=\s+\$(\S+)\s+->\s+([^(]+)\(([^)]+)\); \$(\S+)->configure\(-menu=>.*\);/;
+        my ($id,$parent,$type,$opt,$geom,$w_balloon);
+        # parse balloonmsg (if any)
+        if($line =~ /\$vptk_balloon/)
+        {
+          ($w_balloon) = $line =~ /\$vptk_balloon.*"([^"]+)"/;
+          $line =~ s/\$vptk_balloon.*//;
+        }
+        ($id,$parent,$type,$opt,$geom) =
+          $line =~ /^\s*\$(\S+)\s+=\s+\$(\S+)\s+->\s+([^(]+)\(([^)]+)\)\s+->\s+([^;]+);/;
+        unless($id)
+        {
+          my $virtual_parent;
+          ($id,$virtual_parent,$type,$opt,$parent) =
+            $line =~ /^\s*\$(\S+)\s+=\s+\$(\S+)\s+->\s+([^(]+)\(([^)]+)\); \$(\S+)->configure\(-menu=>.*\);/;
+        }
+        unless($id)
+        {
+          ($id,$parent,$type,$opt) =
+            $line =~ /^\s*\$(\S+)\s+=\s+\$(\S+)\s+->\s+([^(]+)\(([^)]+)\);\s*$/;
+        }
+# 2.
+        next unless $id;
+        if($type =~ /^\s*Scrolled\s*$/) {
+          my ($real_type,$real_opt) = $opt =~ /^\s*'?(\w+)'?,\s(.*)/;
+          $type=$real_type; $opt=$real_opt.", -scrolled=>1";
+        }
+        if($parent ne 'mw' && ! defined $descriptor{$parent})
+        {
+# error - report in Tk style:
+          push @ERRORS, "line ${count}: Wrong parent id <$parent> for widget <$id>";
+          next;
+        }
+        if(defined $descriptor{$id})
+        {
+          push @ERRORS, "line ${count}: Duplicated widget <$id> definition\n";
+          next;
+        }
+        $obj_count++;
+        my ($parent_path)=grep(/$parent$/,@tree);
+        $parent_path='mw' unless $parent_path;
+        my ($insert_path)=(grep(/$parent\.[^.]+$/,@tree))[-1];
+        push(@tree,"$parent_path.$id");
+        $type=~s/\s//g;
+        if ($type eq 'add')
+        {
+          $type='NoteBookFrame';
+          $opt=~s/^\s*\S+\s*,\s*//;
+        }
+        my $image = WidgetIcon($type);
+        if($insert_path)
+        {
+          $tf->add("$parent_path.$id",-text=>$id,-data=> "$parent_path.$id",
+              -image=>$image,-after=>$insert_path);
+        }
+        else
+        {
+          $tf->add("$parent_path.$id",-text=>$id,-data=> "$parent_path.$id",-image=>$image);
+        }
+        $descriptor{$id}=&descriptor_create($id,$parent,$type,$opt,$geom,$w_balloon);
+        if($opt=~/variable/)
+        {
+# store user-defined variable in array
+          my ($user_var)=($opt=~/\\\$(\w+)/);
+          push(@user_auto_vars,$user_var)
+            if $user_var && ! grep($_ eq $user_var,@user_auto_vars);
+        }
+        &PushCallback($opt=~/(?:-command|-\wcmd)\s*=>\s*([^,]+), /g);
       }
-      unless($id)
-      {
-        ($id,$parent,$type,$opt) =
-          $line =~ /^\s*\$(\S+)\s+=\s+\$(\S+)\s+->\s+([^(]+)\(([^)]+)\);\s*$/;
-      }
-      # 2.
-      next unless $id;
-      if($parent ne 'mw' && ! defined $descriptor{$parent})
-      {
-        # error - report in Tk style:
-	push @ERRORS, "line ${count}: Wrong parent id <$parent> for widget <$id>";
-	next;
-      }
-      if(defined $descriptor{$id})
-      {
-        push @ERRORS, "line ${count}: Duplicated widget <$id> definition\n";
-	next;
-      }
-      $obj_count++;
-      my ($parent_path)=grep(/$parent$/,@tree);
-      $parent_path='mw' unless $parent_path;
-      my ($insert_path)=(grep(/$parent\.[^.]+$/,@tree))[-1];
-      push(@tree,"$parent_path.$id");
-      $type=~s/\s//g;
-      if ($type eq 'add')
-      {
-        $type='NoteBookFrame';
-        $opt=~s/^\s*\S+\s*,\s*//;
-      }
-      if($insert_path)
-      {
-        $tf->add("$parent_path.$id",-text=>$id,-data=> "$parent_path.$id",
-          -image=>$pic{lc($type)},-after=>$insert_path);
-      }
-      else
-      {
-        $tf->add("$parent_path.$id",-text=>$id,-data=> "$parent_path.$id",-image=>$pic{lc($type)});
-      }
-      $descriptor{$id}=&descriptor_create($id,$parent,$type,$opt,$geom);
-      if($opt=~/variable/)
-      {
-        # store user-defined variable in array
-	my ($user_var)=($opt=~/\\\$(\w+)/);
-	push(@user_auto_vars,$user_var)
-	  if $user_var && ! grep($_ eq $user_var,@user_auto_vars);
-      }
-      &PushCallback($opt=~/(?:-command|-\wcmd)\s*=>\s*([^,]+), /g);
-    }
   }
   if(@ERRORS)
   {
@@ -2107,9 +2919,9 @@ sub descriptor_create
   my @p=@_;
   map s/\s*$//,@p;
   map s/^\s*//,@p;
-  my ($id,$parent,$type,$opt,$geom)=@p;
+  my ($id,$parent,$type,$opt,$geom,$wballoon)=@p;
 
-  my $descriptor={'id'=>$id,'parent'=>$parent,'type'=>$type,'opt'=>$opt,'geom'=>$geom};
+  my $descriptor={'id'=>$id,'parent'=>$parent,'type'=>$type,'opt'=>$opt,'geom'=>$geom,'wballoon'=>$wballoon};
   $descriptor{$id}=$descriptor;
   return $descriptor;
 }
@@ -2138,12 +2950,13 @@ sub split_opt
   return (%result);
 }
 
+# reaction for click on objects that could have callbacks
 sub callback
 {
   my $reply=&ShowDialog(-bitmap=>'info',-title=>'Callback triggered:',
     -text=> "This action triggered callback function <$_[0]>",
     -buttons=>['Close','Edit callbacks','Widget properties','Help']);
-  &file_properties if($reply eq 'Edit callbacks');
+  &file_properties('callbacks') if($reply eq 'Edit callbacks');
   &edit_properties if($reply eq 'Widget properties');
   &tkpod('callbacks') if($reply eq 'Help');
 }

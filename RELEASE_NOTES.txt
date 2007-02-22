@@ -1,0 +1,20 @@
+VPTK_W Revision 2.38
+
+- Fixed cross-platform dependency in resource file creation procedure
+- Fixed bug in images display ("show help" routine)
+- Updated widget_help.html document
+- Bug fixed in IDE settings reset/restore
+- README fixed
+- Windows-specific bug fix in dynamic widgets loading
+- old widget tree binding bug fixed
+- all editor properties copied to settings window
+- tutorial written (rev 1)
+
+- cosmetic changes in project documentation
+- Cross-platform HList selection bug fixed
+- Added support for code before Tk and code before widgets
+- 'bitmap' widget attribute support
+
+- File re-load suggested after editing in external editor
+- Long 'selected' path replaced with ellipses
+- Arrow up/down keys mapped for previous/next selection

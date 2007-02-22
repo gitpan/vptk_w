@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl
+#!/usr/bin/perl
 
 my $path;
 my $perl;
@@ -110,7 +110,7 @@ if (grep /^--?h/,@ARGV)
   exit 1;
 }
 
-my $ver=q$Revision: 1.14 $;
+my $ver=q$Revision: 1.2 $;
 
 my $bg_color='gray';
 my $changes;          # Modifications flag

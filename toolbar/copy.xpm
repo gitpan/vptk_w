@@ -1,7 +1,7 @@
 /* XPM */
 static char * copy_xpm[] = {
 /* width height ncolors chars_per_pixel */
-"18 18 5 1",
+"17 17 5 1",
 /* colors */
 "  s None c None",
 ". c #040204",
@@ -9,21 +9,20 @@ static char * copy_xpm[] = {
 "o c #7C7E7C",
 "O c #BCBEBC",
 /* pixels */
-"                  ",
-"                  ",
-" ..........       ",
-" .XXXXXXXX.o      ",
-" .X.............  ",
-" .XXXX.XXXXXXXX.  ",
-" .X....X......X.o ",
-" .XXXX.XXXXXXXX.o ",
-" .X....X......X.o ",
-" .XXXX.XXXXXXXX.o ",
-" .X..X.X......X.o ",
-" .XXXX.XXXXXXXX.o ",
-" ......X..XXXXX.o ",
-"  oooo.XXXXXXXX.o ",
-"     O..........o ",
-"        ooooooooo ",
-"                  ",
-"                  "};
+"                 ",
+"..........       ",
+".XXXXXXXX.o      ",
+".X.............  ",
+".XXXX.XXXXXXXX.  ",
+".X....X......X.o ",
+".XXXX.XXXXXXXX.o ",
+".X....X......X.o ",
+".XXXX.XXXXXXXX.o ",
+".X..X.X......X.o ",
+".XXXX.XXXXXXXX.o ",
+"......X..XXXXX.o ",
+" oooo.XXXXXXXX.o ",
+"    O..........o ",
+"       ooooooooo ",
+"                 ",
+"                 "};
