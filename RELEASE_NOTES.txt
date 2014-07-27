@@ -1,3 +1,21 @@
+VPTK_W Revision 2.42
+
+- preventing use of the same color for background and foreground in IDE
+- do not proceed file if it's empty
+- fixed some selection bugs
+- callback function name displayed correctly in dialog window
+- "scrollable" attribute support in "new class" wizard
+- search-path applied when looking for new widget POD
+- header printed into new widget class definition
+- default help text added for unknown class properties
+- ".exe" extension removed when processing interpreter executable path
+- "command" class definition extended
+- fixed bug: callback triggering after design preview redraw
+- added toolbar button for callback functions editing
+- callback triggering dialog became more informative
+- edit exact callback function associated with triggered event
+- tkpod help looks for modules using actual Tk.pm path
+
 VPTK_W Revision 2.38
 
 - Fixed cross-platform dependency in resource file creation procedure

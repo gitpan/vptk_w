@@ -199,10 +199,14 @@ best in order to supply powerful 'undo' mechanisms for such cases
 elimination. All bug reports are welcomed and will be served ASAP.
 
   You can contact me, download updated versions of this program
-and other FREE software from my site http://felix.da.ru
+and other FREE software from my site 
+http://felixl.coolpage.biz/download.html
 
-  Thanks a lot to all customers that send me advices and
+  Thanks a lot to all customers that sent me advices and
 suggestions.
+
+  Special thanks to RonW for code tuning and bug fixes in versions
+2_38 & 2_42.
 
   Thanks to PerlTk.ORG web-site for publishing my dilettante
 artwork among real PerlTk classics.

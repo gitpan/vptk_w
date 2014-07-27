@@ -8,6 +8,7 @@ sub new {
   my $this  = vptk_w::Project->new(@_);
   foreach($^X, '/usr/local/bin/perl', '/usr/bin/perl') {
     if(-f $_) {
+      s/\.exe$//;
       $this->push('perl executable'=>$_);
       last;
     }

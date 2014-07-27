@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/local/bin/perl -w
 
 # Wizard for new class definition
 
@@ -36,7 +36,7 @@ my %pic;
 opendir(P,"$VPTK_Path/toolbar");
 foreach my $pic(grep(/(gif|xpm)$/,readdir(P)))
 {
-  my $pic_file="toolbar/$pic";
+  my $pic_file="$VPTK_Path/toolbar/$pic";
   next if $pic_file =~ /\.gif/ && -s $pic_file > 300;
   next if $pic_file =~ /\.xpm/ && -s $pic_file > 1000;
   $pic =~ s/\..+$//;
@@ -50,44 +50,45 @@ use Tk::Dialog;
 #===vptk widgets definition===< DO NOT WRITE UNDER THIS LINE >===
 use Tk::Balloon;
 my $vptk_balloon=$mw->Balloon(-background=>"lightyellow",-initwait=>550);
-use vars qw/$class_path $have_geometry $sel_pic $default_parameters $class_name $prop_name $prop_value/;
+use vars qw/$class_path $have_geometry $scrollable $sel_pic $default_parameters $class_name $prop_name $prop_value/;
 
 my $w_NoteBook_main = $mw -> NoteBook (  ) -> pack(-anchor=>'nw', -fill=>'both', -expand=>1);
 my $w_Frame_Controls = $mw -> Frame ( -relief=>'flat' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -expand=>1);
-my $w_Button_Previous = $w_Frame_Controls -> Button ( -relief=>'raised', -text=>'<< Previous', -compound=>'none', -command=>\&prev_tab, -state=>'normal', -width=>10 ) -> pack(-anchor=>'nw', -side=>'left', -fill=>'y', -padx=>10);
-my $w_Button_Next = $w_Frame_Controls -> Button ( -relief=>'raised', -text=>'Next >>', -compound=>'none', -command=>\&next_tab, -state=>'normal', -width=>10 ) -> pack(-anchor=>'nw', -side=>'left', -fill=>'y', -padx=>10);
-my $w_Button_Ok = $w_Frame_Controls -> Button ( -relief=>'raised', -text=>'Ok', -compound=>'none', -command=>\&on_ok, -width=>10, -state=>'normal' ) -> pack(-anchor=>'nw', -side=>'left', -fill=>'y', -padx=>10);
-my $w_Button_Cancel = $w_Frame_Controls -> Button ( -relief=>'raised', -text=>'Cancel', -compound=>'right', -command=>sub {exit}, -bitmap=>'error', -state=>'normal', -width=>60 ) -> pack(-anchor=>'nw', -side=>'left', -padx=>10);
-my $w_NoteBookFrame_intro = $w_NoteBook_main -> add ( 'w_NoteBookFrame_intro', -label=>'Hello', -justify=>'left', -state=>'normal' );
-my $w_Message_Hello = $w_NoteBookFrame_intro -> Message ( -justify=>'left', -relief=>'flat', -text=>"This is a VPTK_W add-on. You can define here new widget class for VPTK_W. The new class definition will appear in available widgets list next time you run vptk_w.pl; Respective file will be created under $VPTK_Path/vptk_w/VPTK_Widget", -aspect=>500 ) -> pack(-pady=>10, -padx=>10);
-my $w_NoteBook_WidgetClass = $w_NoteBook_main -> add ( 'w_NoteBook_WidgetClass', -wraplength=>80, -label=>'Widget Class selection', -justify=>'left', -state=>'normal' );
-my $w_LabEntry_Class = $w_NoteBook_WidgetClass -> LabEntry ( -label=>'Class:', -justify=>'left', -labelPack=>[-side=>'left',-anchor=>'n'], -relief=>'sunken', -textvariable=>\$class_path, -state=>'normal' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>10);
+my $w_Button_Previous = $w_Frame_Controls -> Button ( -command=>\&prev_tab, -state=>'normal', -width=>10, -relief=>'raised', -text=>'<< Previous', -compound=>'none' ) -> pack(-anchor=>'nw', -fill=>'y', -side=>'left', -padx=>10);
+my $w_Button_Next = $w_Frame_Controls -> Button ( -command=>\&next_tab, -state=>'normal', -width=>10, -relief=>'raised', -text=>'Next >>', -compound=>'none' ) -> pack(-anchor=>'nw', -fill=>'y', -side=>'left', -padx=>10);
+my $w_Button_Ok = $w_Frame_Controls -> Button ( -command=>\&on_ok, -width=>10, -state=>'normal', -relief=>'raised', -text=>'Ok', -compound=>'none' ) -> pack(-anchor=>'nw', -fill=>'y', -side=>'left', -padx=>10);
+my $w_Button_Cancel = $w_Frame_Controls -> Button ( -command=>sub {exit}, -state=>'normal', -width=>60, -relief=>'raised', -text=>'Cancel', -compound=>'right', -bitmap=>'error' ) -> pack(-anchor=>'nw', -side=>'left', -padx=>10);
+my $w_NoteBookFrame_intro = $w_NoteBook_main -> add ( 'w_NoteBookFrame_intro', -label=>'Hello', -state=>'normal', -justify=>'left' );
+my $w_Message_Hello = $w_NoteBookFrame_intro -> Message ( -justify=>'left', -relief=>'flat', -text=>'"This is a VPTK_W add-on. You can define here new widget class for VPTK_W. The new class definition will appear in available widgets list next time you run vptk_w.pl; Respective file will be created under $VPTK_Path/vptk_w/VPTK_Widget"', -aspect=>500 ) -> pack(-pady=>10, -padx=>10);
+my $w_NoteBook_WidgetClass = $w_NoteBook_main -> add ( 'w_NoteBook_WidgetClass', -wraplength=>80, -label=>'Widget Class selection', -state=>'normal', -justify=>'left' );
+my $w_LabEntry_Class = $w_NoteBook_WidgetClass -> LabEntry ( -label=>'Class:', -labelPack=>[-side=>'left',-anchor=>'n'], -state=>'normal', -justify=>'left', -relief=>'sunken', -textvariable=>\$class_path ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>10);
 my $w_Listbox_Classes = $w_NoteBook_WidgetClass -> Scrolled ( 'Listbox', -selectmode=>'single', -relief=>'sunken', -scrollbars=>'osoe' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'both', -expand=>1, -padx=>10);
-my $w_NoteBookFrame_help = $w_NoteBook_main -> add ( 'w_NoteBookFrame_help', -label=>'Perldoc Help', -justify=>'left', -state=>'normal' );
-my $w_ROText_Help = $w_NoteBookFrame_help -> Scrolled ( 'ROText', -height=>10, -relief=>'sunken', -scrollbars=>'osoe', -wrap=>'none', -width=>30, -state=>'normal' ) -> pack(-pady=>5, -fill=>'both', -expand=>1, -padx=>5);
-my $w_NoteBook_WidgetVPTK = $w_NoteBook_main -> add ( 'w_NoteBook_WidgetVPTK', -wraplength=>100, -label=>'VPTK-related properties', -justify=>'left', -state=>'normal' );
+my $w_NoteBookFrame_help = $w_NoteBook_main -> add ( 'w_NoteBookFrame_help', -label=>'Perldoc Help', -state=>'normal', -justify=>'left' );
+my $w_ROText_Help = $w_NoteBookFrame_help -> Scrolled ( 'ROText', -width=>30, -state=>'normal', -height=>10, -relief=>'sunken', -scrollbars=>'osoe', -wrap=>'none' ) -> pack(-pady=>5, -fill=>'both', -expand=>1, -padx=>5);
+my $w_NoteBook_WidgetVPTK = $w_NoteBook_main -> add ( 'w_NoteBook_WidgetVPTK', -wraplength=>100, -label=>'VPTK-related properties', -state=>'normal', -justify=>'left' );
 my $w_LabFrame_icon = $w_NoteBook_WidgetVPTK -> LabFrame ( -label=>'Icon', -relief=>'ridge', -labelside=>'acrosstop' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
-my $w_Checkbutton_HaveGeom = $w_NoteBook_WidgetVPTK -> Checkbutton ( -anchor=>'nw', -justify=>'left', -relief=>'flat', -indicatoron=>1, -text=>'Have geometry', -variable=>\$have_geometry, -state=>'normal' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
-my $w_Label_icon = $w_LabFrame_icon -> Label ( -justify=>'left', -text=>[], -relief=>'flat', -image=>$pic{"undef"} ) -> pack(-anchor=>'nw', -side=>'left', -pady=>5, -padx=>5);
-my $w_LabEntry_IconNm = $w_LabFrame_icon -> LabEntry ( -label=>'Icon name:', -justify=>'left', -labelPack=>[-side=>'left',-anchor=>'n'], -relief=>'sunken', -textvariable=>\$sel_pic, -state=>'normal' ) -> pack(-anchor=>'nw', -side=>'left', -pady=>5, -fill=>'x', -expand=>1, -padx=>5);
-my $w_Menubutton_icons = $w_LabFrame_icon -> Menubutton ( -justify=>'left', -relief=>'raised', -compound=>'none', -text=>'...', -state=>'normal' ) -> pack(-anchor=>'nw', -side=>'left', -pady=>5, -padx=>5);
+my $w_Checkbutton_HaveGeom = $w_NoteBook_WidgetVPTK -> Checkbutton ( -anchor=>'nw', -indicatoron=>1, -state=>'normal', -justify=>'left', -relief=>'flat', -text=>'Have geometry', -variable=>\$have_geometry ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
+my $w_Checkbutton_037 = $w_NoteBook_WidgetVPTK -> Checkbutton ( -anchor=>'nw', -overrelief=>'flat', -indicatoron=>1, -state=>'normal', -justify=>'left', -offrelief=>'flat', -relief=>'flat', -text=>'Scrollable', -variable=>\$scrollable ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
+my $w_Label_icon = $w_LabFrame_icon -> Label ( -justify=>'left', -text=>[], -relief=>'flat', -image=>$pic{"undef"} ) -> pack(-anchor=>'nw', -pady=>5, -side=>'left', -padx=>5);
+my $w_LabEntry_IconNm = $w_LabFrame_icon -> LabEntry ( -label=>'Icon name:', -labelPack=>[-side=>'left',-anchor=>'n'], -state=>'normal', -justify=>'left', -relief=>'sunken', -textvariable=>\$sel_pic ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -side=>'left', -expand=>1, -padx=>5);
+my $w_Menubutton_icons = $w_LabFrame_icon -> Menubutton ( -state=>'normal', -justify=>'left', -relief=>'raised', -compound=>'none', -text=>'...' ) -> pack(-anchor=>'nw', -pady=>5, -side=>'left', -padx=>5);
 my $w_Menu_pic = $w_Menubutton_icons -> Menu ( -tearoff=>0 ); $w_Menubutton_icons->configure(-menu=>$w_Menu_pic);
-my $w_LabEntry_DefltParam = $w_NoteBook_WidgetVPTK -> LabEntry ( -label=>'Default parameters:', -justify=>'left', -labelPack=>[-side=>'left',-anchor=>'n'], -relief=>'sunken', -textvariable=>\$default_parameters, -state=>'normal' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
-my $w_LabEntry_ClsName = $w_NoteBook_WidgetVPTK -> LabEntry ( -label=>'Class name:', -justify=>'left', -labelPack=>[-side=>'left',-anchor=>'n'], -relief=>'sunken', -textvariable=>\$class_name, -state=>'normal' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
-my $w_NoteBook_TkProperties = $w_NoteBook_main -> add ( 'w_NoteBook_TkProperties', -wraplength=>90, -label=>'Tk-related properties', -justify=>'left', -state=>'normal' );
-my $w_Listbox_TkProp = $w_NoteBook_TkProperties -> Scrolled ( 'Listbox', -selectmode=>'single', -relief=>'sunken', -scrollbars=>'osoe' ) -> pack(-anchor=>'nw', -side=>'left', -pady=>5, -fill=>'y', -padx=>5);
-my $w_Frame_TkProp = $w_NoteBook_TkProperties -> Frame ( -relief=>'flat' ) -> pack(-anchor=>'nw', -side=>'left', -pady=>5, -fill=>'both', -expand=>1, -padx=>5);
-my $w_LabEntry_PropName = $w_Frame_TkProp -> LabEntry ( -label=>'Property:', -justify=>'left', -labelPack=>[-side=>'left',-anchor=>'n'], -relief=>'sunken', -textvariable=>\$prop_name, -state=>'normal' ) -> pack(-anchor=>'nw', -fill=>'x', -padx=>5);
-my $w_BrowseEntry_PropValue = $w_Frame_TkProp -> BrowseEntry ( -label=>'Value:', -justify=>'left', -labelPack=>[-side=>'left',-anchor=>'n'], -relief=>'sunken', -variable=>\$prop_value, -state=>'normal' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
+my $w_LabEntry_DefltParam = $w_NoteBook_WidgetVPTK -> LabEntry ( -label=>'Default parameters:', -labelPack=>[-side=>'left',-anchor=>'n'], -state=>'normal', -justify=>'left', -relief=>'sunken', -textvariable=>\$default_parameters ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
+my $w_LabEntry_ClsName = $w_NoteBook_WidgetVPTK -> LabEntry ( -label=>'Class name:', -labelPack=>[-side=>'left',-anchor=>'n'], -state=>'normal', -justify=>'left', -relief=>'sunken', -textvariable=>\$class_name ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
+my $w_NoteBook_TkProperties = $w_NoteBook_main -> add ( 'w_NoteBook_TkProperties', -wraplength=>90, -label=>'Tk-related properties', -state=>'normal', -justify=>'left' );
+my $w_Listbox_TkProp = $w_NoteBook_TkProperties -> Scrolled ( 'Listbox', -selectmode=>'single', -relief=>'sunken', -scrollbars=>'osoe' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'y', -side=>'left', -padx=>5);
+my $w_Frame_TkProp = $w_NoteBook_TkProperties -> Frame ( -relief=>'flat' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'both', -side=>'left', -expand=>1, -padx=>5);
+my $w_LabEntry_PropName = $w_Frame_TkProp -> LabEntry ( -label=>'Property:', -labelPack=>[-side=>'left',-anchor=>'n'], -state=>'normal', -justify=>'left', -relief=>'sunken', -textvariable=>\$prop_name ) -> pack(-anchor=>'nw', -fill=>'x', -padx=>5);
+my $w_BrowseEntry_PropValue = $w_Frame_TkProp -> BrowseEntry ( -label=>'Value:', -labelPack=>[-side=>'left',-anchor=>'n'], -state=>'normal', -justify=>'left', -relief=>'sunken', -variable=>\$prop_value ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
 my $w_Lbl_descr = $w_Frame_TkProp -> Label ( -anchor=>'nw', -pady=>5, -justify=>'left', -text=>'Description:', -relief=>'flat' ) -> pack(-anchor=>'nw', -fill=>'x', -padx=>5);
-my $w_Text_PropHelp = $w_Frame_TkProp -> Scrolled ( 'Text', -height=>10, -relief=>'sunken', -scrollbars=>'osoe', -wrap=>'none', -width=>36, -state=>'normal' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'both', -padx=>5);
+my $w_Text_PropHelp = $w_Frame_TkProp -> Scrolled ( 'Text', -width=>36, -state=>'normal', -height=>10, -relief=>'sunken', -scrollbars=>'osoe', -wrap=>'none' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'both', -padx=>5);
 my $w_Frame_PropButtons = $w_Frame_TkProp -> Frame ( -relief=>'flat' ) -> pack(-anchor=>'nw', -pady=>10, -fill=>'x');
-my $w_Button_PrAdd = $w_Frame_PropButtons -> Button ( -relief=>'raised', -compound=>'none', -text=>'Add', -command=>\&add_property, -state=>'normal' ) -> pack(-anchor=>'nw', -side=>'left', -fill=>'x', -expand=>1);
-my $w_Button_PrChange = $w_Frame_PropButtons -> Button ( -relief=>'raised', -compound=>'none', -text=>'Change', -command=>\&update_property, -state=>'normal' ) -> pack(-anchor=>'nw', -side=>'left', -fill=>'x', -expand=>1);
-my $w_Button_PrDel = $w_Frame_PropButtons -> Button ( -relief=>'raised', -compound=>'none', -text=>'Delete', -command=>\&del_property, -state=>'normal' ) -> pack(-anchor=>'nw', -side=>'left', -fill=>'x', -expand=>1);
-my $w_NoteBook_ResultCode = $w_NoteBook_main -> add ( 'w_NoteBook_ResultCode', -label=>'Result Code', -justify=>'left', -state=>'normal' );
-my $w_Button_ReGenerate = $w_NoteBook_ResultCode -> Button ( -relief=>'raised', -compound=>'none', -text=>'Re-generate code', -command=>\&regenerate_code, -state=>'normal' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
-my $w_Text_GeneratedCode = $w_NoteBook_ResultCode -> Scrolled ( 'Text', -height=>10, -relief=>'sunken', -scrollbars=>'osoe', -wrap=>'none', -width=>30, -state=>'normal' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'both', -expand=>1, -padx=>5);
+my $w_Button_PrAdd = $w_Frame_PropButtons -> Button ( -command=>\&add_property, -state=>'normal', -relief=>'raised', -compound=>'none', -text=>'Add' ) -> pack(-anchor=>'nw', -fill=>'x', -side=>'left', -expand=>1);
+my $w_Button_PrChange = $w_Frame_PropButtons -> Button ( -command=>\&update_property, -state=>'normal', -relief=>'raised', -compound=>'none', -text=>'Change' ) -> pack(-anchor=>'nw', -fill=>'x', -side=>'left', -expand=>1);
+my $w_Button_PrDel = $w_Frame_PropButtons -> Button ( -command=>\&del_property, -state=>'normal', -relief=>'raised', -compound=>'none', -text=>'Delete' ) -> pack(-anchor=>'nw', -fill=>'x', -side=>'left', -expand=>1);
+my $w_NoteBook_ResultCode = $w_NoteBook_main -> add ( 'w_NoteBook_ResultCode', -label=>'Result Code', -state=>'normal', -justify=>'left' );
+my $w_Button_ReGenerate = $w_NoteBook_ResultCode -> Button ( -command=>\&regenerate_code, -state=>'normal', -relief=>'raised', -compound=>'none', -text=>'Re-generate code' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'x', -padx=>5);
+my $w_Text_GeneratedCode = $w_NoteBook_ResultCode -> Scrolled ( 'Text', -width=>30, -state=>'normal', -height=>10, -relief=>'sunken', -scrollbars=>'osoe', -wrap=>'none' ) -> pack(-anchor=>'nw', -pady=>5, -fill=>'both', -expand=>1, -padx=>5);
 
 $w_Listbox_Classes->bind('<Button-1>',\&path_sel);
 $w_Listbox_TkProp->bind('<<ListboxSelect>>',\&prop_sel);
@@ -139,10 +140,14 @@ MainLoop;
 sub path_sel
 {
   $class_path = $w_Listbox_Classes->get('anchor');
-  ($class_name) = $class_path =~ m#[\\/]([^\\/]+)\.pm$#;
+  ($class_name) = $class_path =~ m#[\\/]([^\\/]+)\.pm$#; #
+  my $pod_path = $class_path; $pod_path =~ s/\.pm$//;
+  $pod_path .= '.pod' if -e "$pod_path.pod";
+  $pod_path .= '.pm' if -e "$pod_path.pm";
+  $pod_path = "Tk::$class_name" unless -e $pod_path;
 
   $mw->Busy;
-  open3(\*WTRFH, \*POD, \*PODERR, "perldoc -t Tk::$class_name");
+  open3(\*WTRFH, \*POD, \*PODERR, "perldoc -t $pod_path");
   my @POD=<POD>;
   push(@POD,<PODERR>);
   close WTRFH; close POD; close PODERR;
@@ -211,6 +216,22 @@ sub path_sel
     {
       $switches{$sw} = 'text';
     }
+    # complete missing help messages
+    unless ( exists $cnf_dlg_balloon{$sw} )
+    {
+      my %default_baloon = (
+        'callback' => "callback routine for $sw event",
+        'bitmap'   => "bitmap related to $sw",
+        'variable' => "variable pointer associated with $sw",
+        'int+'     => "positive integer measuring the value of $sw",
+        'color'    => "the color to be used for $sw"
+      );
+      if(exists $default_baloon{$switches{$sw}})
+      {
+        $cnf_dlg_balloon{$sw} = " $sw => $switches{$sw}\n$default_baloon{$switches{$sw}}";
+      }
+    }
+    
   }
   # clean listbox
   $w_Listbox_TkProp->delete(0,'end');
@@ -319,6 +340,10 @@ sub regenerate_code
     return;
   }
   push(@code,
+"# This is automatically generated code, but you are welcome to modify it",
+"# The class defined below describes how to handle widgets of type Tk::$class_name by vptk_w.pl",
+"# Original Tk code of this class could be found here:",
+"# $class_path",
 "package vptk_w::VPTK_Widget::$class_name;",
 "",
 "use strict;",
@@ -332,6 +357,7 @@ sub regenerate_code
 "sub EditorProperties {",
 "  return {",
 map("$_=> '$switches{$_}',",sort keys %switches),
+($scrollable?"-scrollbars=>'scrolled'":""),
 "  }",
 "}",
 "",
@@ -353,10 +379,13 @@ sub prop_sel
 {
   # update fields according to selected property
   my $prop = $w_Listbox_TkProp->get('anchor');
-  ($prop_name,$prop_value) = $prop =~ /^(\S+) (.*)/;
-  $w_Text_PropHelp->delete('0.0','end');
-  $w_Text_PropHelp->insert('end',$cnf_dlg_balloon{$prop_name})
-    if exists $cnf_dlg_balloon{$prop_name};
+  if($prop)
+  {
+    ($prop_name,$prop_value) = $prop =~ /^(\S+) (.*)/;
+    $w_Text_PropHelp->delete('0.0','end');
+    $w_Text_PropHelp->insert('end',$cnf_dlg_balloon{$prop_name})
+      if exists $cnf_dlg_balloon{$prop_name};
+  }
 }
 
 sub add_property

@@ -63,7 +63,6 @@ Sets the column to place widget in (n >= 0).
  -columns => number
 Number of columns in widget.
 
-
  -columnspan => n
 Sets the number of columns for the widget to span beginning with -column.
 
@@ -105,10 +104,7 @@ specified direction
  -fixedcolumns => number
 Number of fixed columns
 
-
-
  -fixedrows => number
-
 
  -font => fontname
 Indicates that the text in the widget will be displayed with fontname.
@@ -309,7 +305,6 @@ Widget will stick to those sides.
  -takefocus => 0 | 1 | undef
 Changes the ability of the widget to have the focus or not.
 
-
  -tearoff => 0 | 1
 Determines whether or not the menu will contain the tear-off item as the first item. 
 Default is 1.
@@ -328,6 +323,9 @@ by other options, such as anchor or justify.
 Describes the labels drawn by the right (or on the bottom) of the scale.
 Labels are drawn for every value. A value of 0 means no labels will be drawn at all.
 Default is 0.
+
+ -title => value
+Dialog title.
 
  -to => value
 Sets the top value of the scale. Default is 100.

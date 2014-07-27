@@ -11,7 +11,9 @@ sub AssociatedIcon{ 'command' }
 sub EditorProperties {
   return {
     -label=>'text',-accelerator=>'text',-background=>'color', 
-    -foreground=>'color',-underline=>'int+',-command=>'callback'
+    -foreground=>'color',-underline=>'int+',-command=>'callback',
+    -compound=>'menu(none|bottom|center|left|right)',-bitmap=>'bitmap',
+    -image=>'variable'
   }
 }
 

@@ -12,6 +12,8 @@ sub EditorProperties {
   return {
     -background=>'color',-foreground=>'color',-borderwidth=>'int+',
     -width=>'int+',-justify=>'justify',-labelPack=>'lpack',
+    -validate=>'menu(none|focus|focusin|focusout|key|all)',
+    -validatecommand=>'callback',
     -textvariable=>'variable',-relief=>'relief',-label=>'text',-padx=>'int+',
     -pady=>'int+',-width=>'int+',-state=>'menu(normal|disabled|readonly)'
   }

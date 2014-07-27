@@ -45,8 +45,8 @@ sub print {
   # - call 'MainLoop'
   if ($parent->get('Options')->get('fullcode'))
   {
-    push(@result, "${strict}\$mw=MainWindow->new(-title=>'".
-        $parent->get('Options')->get('title')."');");
+    push(@result, "${strict}\$mw=MainWindow->new(-title=>\"".
+        $parent->get('Options')->get('title')."\");");
 
     my $user_code_before_widgets = $parent->get('Code')->get('code before widgets');
     if(@$user_code_before_widgets) {

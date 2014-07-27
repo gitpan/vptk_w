@@ -28,7 +28,11 @@ sub SetMainPalette
   $mwPalette = $mw->Palette;
 
   my %new = (background=>$bg_color,foreground=>$fg_color);
-  $mw->RecolorTree(\%new);
+  # function available for Perl 5.08 - not available for 5.10 !!!
+  if($] <= 5.008008)
+  {
+    $mw->RecolorTree(\%new);
+  }
   # Save the options in the global variable Tk::Palette, for use the
   # next time we change the options.
   foreach my $option (keys %new) 

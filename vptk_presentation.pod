@@ -112,7 +112,6 @@ module code
 =head1 Download
 
  You can download for free VPTK (widget edition) here:
- · http://perltk.org/ => Scripts => General
- · http://geocities.com/felixdaru/download/vptk_w.tgz
+ · http://felixl.coolpage.biz/download/vptk_w.tgz
 
 =cut
